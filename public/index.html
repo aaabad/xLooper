@@ -59,6 +59,7 @@ small{color:#9bb}
 </div><div class="card"><select id="course"></select><div class="row"><input id="newc" placeholder="New course name" data-en="New course name" data-tl="Pangalan ng course"><button class="b b2" id="addc" style="flex:0 0 90px" data-en="Add" data-tl="Dagdag">Add</button></div>
  <div class="row"><button class="b b2" id="sharec" style="font-size:17px" data-en="Share course" data-tl="I-share ang course">Share course</button><button class="b b2" id="getc" style="font-size:17px" data-en="Get course from a friend" data-tl="Kunin sa kaibigan">Get course from a friend</button></div>
  <div id="sharebox"></div>
+ <div id="splitbox" class="card" style="display:none"><button class="b b2" id="splitopen" type="button" style="font-size:16px" data-en="Split into courses" data-tl="Hatiin sa courses">Split into courses</button><button class="b b2" id="replay9" type="button" style="display:none;font-size:16px" data-en="Play 9 twice" data-tl="9, dalawang beses">Play 9 twice</button><div id="splitform" style="display:none"><small id="splithint"></small><div id="splitholes"></div><div class="row"><input id="splitname" placeholder="Course name, e.g. Red" data-en="Course name, e.g. Red" data-tl="Pangalan, hal. Red"><button class="b" id="splitsave" style="flex:0 0 110px;font-size:16px" data-en="Save" data-tl="I-save">Save</button></div></div></div>
  <div id="getbox" style="display:none"><div class="row"><input id="coursein" placeholder="Paste code or link"><button class="b" id="coursego" style="flex:0 0 120px;font-size:18px">Preview</button></div><div id="cprev"></div></div></div>
  <div id="tot" class="sub" style="font-size:24px;margin:8px"></div>
  <table id="sc"></table>
@@ -67,7 +68,7 @@ small{color:#9bb}
 <section id="s-clubs"><h3 id="clubhead" data-en="My distances (carry, yds)" data-tl="Mga distansya ko (carry, yds)">My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub" data-en="+ Club" data-tl="+ Club">+ Club</button><button class="b b2" id="resetc" data-en="Reset" data-tl="Reset">Reset</button></div>
  <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> <span id="lblAuto" data-en="Auto-read new tournament messages" data-tl="Auto-basahin ang bagong tournament messages">Auto-read new tournament messages</span></label><br><label><input type="checkbox" id="metric" style="width:auto"> <span id="lblMetric" data-en="Distances in meters" data-tl="Distansya sa metro">Distances in meters</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.7 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.8 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)"><div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
  <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div><small>Create uses the current course pars.</small></div>
