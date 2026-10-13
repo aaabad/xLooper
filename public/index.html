@@ -44,6 +44,10 @@ small{color:#9bb}
 #simban{flex:none;background:#c62828;color:#fff;text-align:center;font-weight:900;letter-spacing:.22em;font-size:20px;padding:8px 12px}
 #simban[hidden],#unitask[hidden],#simbox[hidden],#haz:empty{display:none}
 #vhcpout{color:#9be564;font-weight:800;margin:6px 0}
+#rline{color:#ffd23f;font-weight:800;min-height:2.6em;margin:8px 0}
+#rlb tr.flash td{animation:xlflash .8s ease}
+@keyframes xlflash{0%{background:#ffd23f;color:#06210f}100%{background:transparent;color:#fff}}
+#rlog{max-height:22vh;overflow:auto;font-size:16px}
 label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
 </style></head><body>
 <button type="button" id="upd" hidden>New version, tap to refresh</button>
@@ -110,7 +114,7 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
  <small data-en="Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them." data-tl="Papalitan ang GPS para makapag-practice sa bahay. Practice ang round maliban kung i-save mo.">Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them.</small>
  <label id="countSimLbl" class="check" style="display:none"><input type="checkbox" id="countSim" style="width:auto"> <span data-en="Count simulated scores on a real tournament" data-tl="Bilangin ang simulation sa totoong tournament">Count simulated scores on a real tournament</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.11 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.12 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)">
  <label class="check"><input type="checkbox" id="tpractice" style="width:auto"> <span data-en="Practice code (dry run)" data-tl="Practice code (dry run)">Practice code (dry run)</span></label>
@@ -128,7 +132,7 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
   <label for="tallow" data-en="Handicap allowance" data-tl="Handicap allowance">Handicap allowance</label>
   <select id="tallow" aria-label="Handicap allowance"><option value="100">100%</option><option value="95">95%</option><option value="90">90%</option><option value="85">85%</option></select>
   <input id="tmax" type="number" min="0" max="54" step="0.1" placeholder="Max handicap index (optional)" data-en="Max handicap index (optional)" data-tl="Max handicap index (optional)">
-  <small data-en="Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). If rating or slope is missing, the index is the course handicap." data-tl="Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). Kung walang rating o slope, ang index ang course handicap.">Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). If rating or slope is missing, the index is the course handicap.</small>
+  <small data-en="Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). If rating or slope is missing, the index is the course handicap. Players do not have to play at the same time. Each hole keeps the time it was scored." data-tl="Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). Kung walang rating o slope, ang index ang course handicap. Hindi kailangang magkasabay. Bawat hole, naka-time ang score.">Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). If rating or slope is missing, the index is the course handicap. Players do not have to play at the same time. Each hole keeps the time it was scored.</small>
  </div>
  <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div>
  <small data-en="Same-course events use the current pars. Online events let each player bring their own course. A practice event has its own board." data-tl="Ang same-course event ay gumagamit ng kasalukuyang pars. Sa online, sariling course bawat player. May sariling board ang practice.">Same-course events use the current pars. Online events let each player bring their own course. A practice event has its own board.</small></div>
@@ -151,7 +155,22 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
   <div class="row"><button type="button" class="b b2" id="adv1" style="font-size:16px" data-en="Advance 1 hole" data-tl="Isang hole">Advance 1 hole</button><button type="button" class="b" id="playall" style="font-size:16px" data-en="Play all" data-tl="Laro lahat">Play all</button></div>
   <div class="row"><button type="button" class="b" id="promote" style="font-size:16px" data-en="Promote to real" data-tl="Gawing real">Promote to real</button><button type="button" class="b b2" id="freshreal" style="font-size:16px" data-en="New real tournament" data-tl="Bagong real tournament">New real tournament</button></div>
  </div>
- <h3>Leaderboard</h3><table id="lb"></table>
+ <h3>Leaderboard</h3><small id="lbnote"></small><table id="lb"></table>
+ <div id="replaybox" class="card" style="display:none">
+  <b data-en="Replay as live" data-tl="Replay as live">Replay as live</b>
+  <div><small id="rwindow"></small></div>
+  <div id="rline"></div>
+  <div class="row">
+   <button type="button" class="b" id="rplay" style="font-size:16px" data-en="Play" data-tl="Play">Play</button>
+   <button type="button" class="b b2" id="rpause" style="font-size:16px" data-en="Pause" data-tl="Pause">Pause</button>
+   <button type="button" class="b b2" id="rstep" style="font-size:16px" data-en="Step" data-tl="Step">Step</button>
+   <button type="button" class="b b2" id="rhole" style="font-size:16px" data-en="Next hole" data-tl="Susunod na hole">Next hole</button>
+  </div>
+  <div class="seg" id="rspeed" role="group" aria-label="Replay speed"><button type="button" data-spd="1">1×</button><button type="button" data-spd="2">2×</button><button type="button" data-spd="4">4×</button></div>
+  <div class="row"><button type="button" class="b b2" id="rreset" style="font-size:16px" data-en="Start over" data-tl="Ulit mula sa simula">Start over</button></div>
+  <table id="rlb"></table>
+  <div id="rlog"></div>
+ </div>
  <h3>Chat & announcements</h3><div class="msgs card" id="msgs"></div>
  <div class="row"><input id="mtxt" placeholder="Message"><button class="b" id="msend" style="flex:0 0 80px">Send</button></div>
  <div class="row"><button class="b b2" id="mread">🔊 Read messages</button><button class="b b2" id="mvoice">🎙 Speak msg</button><label style="flex:0 0 auto;font-size:16px"><input type="checkbox" id="mann" style="width:auto">📢</label></div></div>

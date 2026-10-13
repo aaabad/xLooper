@@ -1,4 +1,4 @@
-// xLooper v0.11 – voice golf caddy PWA
+// xLooper v0.12 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -650,12 +650,14 @@ function strokesOn(playing,hole,si){
  const give=-h,extra=give%18,easiest=19-idx;return -(Math.floor(give/18)+(easiest<=extra?1:0));
 }
 function stablefordPoints(netToPar){const p=2-(+netToPar||0);return p<0?0:p>5?5:p}
+function scoreVal(v){if(v&&typeof v==='object')return +v.s||0;return +v||0}
+function scoreTs(v){return v&&typeof v==='object'&&isFinite(+v.ts)?+v.ts:0}
 function playerRow(p,format,allowance,maxIndex,fallbackPars){
  const pars=(Array.isArray(p.pars)&&p.pars.length)?p.pars:(fallbackPars||Array(18).fill(4));
  const hcp=playingHandicap(p.index,p.slope,p.rating,coursePar(pars),allowance,maxIndex);
- const hs=Object.entries(p.scores||{}).filter(([,v])=>+v>0);
+ const hs=Object.entries(p.scores||{}).filter(([,v])=>scoreVal(v)>0);
  let gross=0,grossToPar=0,strokes=0,points=0;
- for(const[h,v]of hs){const hn=+h,sc=+v,pr=+pars[hn-1]||4,gtp=sc-pr,st=hcp?strokesOn(hcp.playing,hn,p.si):0;
+ for(const[h,v]of hs){const hn=+h,sc=scoreVal(v),pr=+pars[hn-1]||4,gtp=sc-pr,st=hcp?strokesOn(hcp.playing,hn,p.si):0;
   gross+=sc;grossToPar+=gtp;strokes+=st;points+=stablefordPoints(gtp-st)}
  return {n:p.name||'',course:p.course||'',thru:hs.length,gross,grossToPar,net:gross-strokes,netToPar:grossToPar-strokes,points,playing:hcp&&hcp.playing,attested:!!p.attestedBy,approx:!!(hcp&&hcp.approx)};
 }
@@ -682,10 +684,10 @@ function apply(ev){if(!tstate)return;const n=String(ev.name||ev.from||'').slice(
   if(Array.isArray(ev.pars)&&!tstate.parsSet){tstate.pars=ev.pars.slice(0,18).map(n=>+n||4);tstate.parsSet=1;if(tour&&!tour.pars){tour.pars=tstate.pars.slice();if(!tstate.virtual&&!tour.virtual){C().pars=tstate.pars.slice();save();render()}else save()}}}
  else if(ev.t==='join'&&ev.id){const p=tstate.players[ev.id]=tstate.players[ev.id]||{name:n,scores:{}};if(n)p.name=n;copyPlayerMeta(p,ev)}
  else if((ev.t==='score'||ev.t==='player')&&ev.id){const p=tstate.players[ev.id]=tstate.players[ev.id]||{name:n,scores:{}};if(n)p.name=n;copyPlayerMeta(p,ev);
-  if(ev.t==='score'){const h=+ev.hole;if(h>=1&&h<=18){if(+ev.strokes)p.scores[h]=Math.min(15,+ev.strokes);else delete p.scores[h]}}}
+  if(ev.t==='score'){const h=+ev.hole;if(h>=1&&h<=18){if(+ev.strokes){const s=Math.min(15,+ev.strokes);if(tstate.virtual||(tour&&tour.virtual)){const ts=isFinite(+ev.playedAt)?+ev.playedAt:(isFinite(+ev.ts)?+ev.ts:Date.now());const prev=p.scores[h];p.scores[h]=prev&&typeof prev==='object'&&prev.s===s&&prev.ts?prev:{s,ts}}else p.scores[h]=s}else delete p.scores[h]}}}
  else if(ev.t==='attest'&&ev.playerId){if(ev.id&&ev.id===ev.playerId)return;const p=tstate.players[ev.playerId];if(!p)return;p.attestedBy=String(ev.by||ev.name||'partner').slice(0,24)}
  else if(ev.t==='msg'&&ev.text){msgs.push({from:n||'?',text:String(ev.text).slice(0,280),ts:ev.ts||Date.now(),ann:!!ev.ann});msgs=msgs.slice(-200);return 'msg'}}
-function connect(){if(!tour)return;$('#tjoin').style.display='none';$('#tin').style.display='block';$('#tcd').textContent=tour.code;es?.close();
+function connect(){if(!tour)return;resetReplay();$('#tjoin').style.display='none';$('#tin').style.display='block';$('#tcd').textContent=tour.code;es?.close();
  tstate={name:tour.title||'Tournament',pars:(tour.pars||C().pars).slice(),players:{},parsSet:!!tour.pars,virtual:!!tour.virtual,format:tour.format||'net',start:tour.start||'',end:tour.end||'',allowance:tour.allowance!=null?+tour.allowance:100,maxIndex:tour.maxIndex!=null&&tour.maxIndex!==''?+tour.maxIndex:null};msgs=[];seen=new Set();let live=false;
  $('#ttitle').textContent=tstate.name;$('#tstat').textContent='Connecting…';paintVirtual();
  es=new EventSource(NTFY+topicFor(tour.code,!!tour.practice)+'/sse?since=all');
@@ -694,7 +696,7 @@ function connect(){if(!tour)return;$('#tjoin').style.display='none';$('#tin').st
   const k=apply(ev);$('#ttitle').textContent=tstate.name;paintVirtual();drawLB();drawMsgs();if(k==='msg'&&live&&opts.autoread&&ev.id!==myId&&Date.now()-(ev.ts||0)<6e4)readMsgs(false)};
  es.onerror=()=>$('#tstat').textContent='Reconnecting… (scores still save locally)'}
 function drawLB(){if(!tstate)return;
- if(!tstate.virtual){const pars=tstate.pars,rows=Object.values(tstate.players).map(p=>{const hs=Object.entries(p.scores);const s=hs.reduce((a,[,v])=>a+v,0),pr=hs.reduce((a,[h])=>a+(pars[h-1]||4),0);return{n:p.name,s,rel:s-pr,thru:hs.length}}).sort((a,b)=>(b.thru>0)-(a.thru>0)||a.rel-b.rel||b.thru-a.thru);
+ if(!tstate.virtual){const pars=tstate.pars,rows=Object.values(tstate.players).map(p=>{const hs=Object.entries(p.scores).filter(([,v])=>scoreVal(v)>0);const s=hs.reduce((a,[,v])=>a+scoreVal(v),0),pr=hs.reduce((a,[h])=>a+(pars[h-1]||4),0);return{n:p.name,s,rel:s-pr,thru:hs.length}}).sort((a,b)=>(b.thru>0)-(a.thru>0)||a.rel-b.rel||b.thru-a.thru);
   $('#lb').innerHTML='<tr><th>#</th><th>Player</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>'+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${esc(r.n)}</td><td><b>${r.thru?relS(r.rel):'-'}</b></td><td>${r.thru}</td><td>${r.s||''}</td></tr>`).join('');return}
  const fmt=tstate.format==='gross'||tstate.format==='stableford'?tstate.format:'net';
  const rows=sortRows(Object.values(tstate.players).map(p=>playerRow(p,fmt,tstate.allowance,tstate.maxIndex,tstate.pars)),fmt);
@@ -730,7 +732,7 @@ function applyVirtForm(){if(!$('#vrating'))return;const f=readVirtForm(),c=C();
 function postScore(h){if(!canPost())return;
  if(tour.virtual){if(!inWindow())return say(tr('Scores count from '+(tour.start||'')+' through '+(tour.end||'')+'.','Sa '+(tour.start||'')+' hanggang '+(tour.end||'')+' lang ang score.'));
   const fmt=tour.format||'net';if((fmt==='net'||fmt==='stableford')&&currentIndex()==null)return say(tr('Enter your handicap index on the Tourney tab.','Ilagay ang handicap index sa Tourney tab.'));
-  applyVirtForm();const ev={t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0,...myCard()};if(tstate)apply({...ev,id:myId});drawLB();
+  applyVirtForm();const playedAt=Date.now();const ev={t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0,playedAt,...myCard()};if(tstate)apply({...ev,id:myId,ts:playedAt});drawLB();
   pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});return}
  pub(tour.code,{t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0},myId,!!tour.practice).catch(()=>{})}
 function tourCode(){const a=crypto.getRandomValues(new Uint8Array(8)),cs='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return [...a].map(x=>cs[x%cs.length]).join('')}
@@ -758,7 +760,7 @@ function addBots(){if(!tour||!tour.practice||!tour.host)return say(tr('Create a 
  P('bots',bots);drawLB();if($('#botnames'))$('#botnames').value='';say(tr('Added '+created.map(b=>b.name).join(', ')+'.','Nadagdag sina '+created.map(b=>b.name).join(', ')+'.'))}
 function advanceBots(all){if(!tour||!tour.practice||!tour.host)return say(tr('Practice controls are for the host.','Sa host ang practice controls.'));if(!bots.length)return say(tr('Add simulated players first. Real players can still join.','Magdagdag muna ng simulated players. Pwede pa ring sumali ang totoong players.'));
  const pars=(tstate&&tstate.pars)||C().pars;const step=()=>{let moved=false;for(const b of bots){const played=Object.keys(b.scores).map(Number);const next=(played.length?Math.max(...played):0)+1;if(next>18)continue;const pr=(tour.virtual&&b.pars)?(b.pars[next-1]||4):(pars[next-1]||4);const s=simScore(pr);b.scores[next]=s;
-  const ev={t:'score',name:b.name,hole:next,strokes:s,id:b.id};if(tour.virtual)Object.assign(ev,{course:b.course,pars:b.pars,rating:b.rating,slope:b.slope,index:b.index,si:b.si});if(tstate)apply(ev);pub(tour.code,ev,b.id,true).catch(()=>{});moved=true}return moved};
+  const ev={t:'score',name:b.name,hole:next,strokes:s,id:b.id};if(tour.virtual)Object.assign(ev,{course:b.course,pars:b.pars,rating:b.rating,slope:b.slope,index:b.index,si:b.si,playedAt:Date.now()+next});if(tstate)apply(ev);pub(tour.code,ev,b.id,true).catch(()=>{});moved=true}return moved};
  if(all){let g=0;while(step()&&g++<18){}}else step();P('bots',bots);drawLB();say(tr(all?'Simulated players finished the round.':'Simulated players advanced one hole.',all?'Tapos na ang simulated players.':'Isang hole ang simulated players.'))}
 async function promoteTour(){if(!tour||!tour.host||!tour.practice)return;const invites=inviteNames();const title=tour.title||(tstate&&tstate.name)||'Tournament';const pars=(tour.pars||C().pars).slice();
  const info={t:'info',title,pars,practice:false};if(tour.virtual)Object.assign(info,virtualFields(tour));
@@ -780,7 +782,12 @@ function fillVirtInputs(){const c=C();const key=cur+'|'+(c.rating??'')+'|'+(c.sl
  if($('#vrating'))$('#vrating').value=c.rating!=null&&c.rating!==''?c.rating:'';
  if($('#vslope'))$('#vslope').value=c.slope!=null&&c.slope!==''?c.slope:'';
  if($('#vindex'))$('#vindex').value=opts.hcpIndex!=null&&opts.hcpIndex!==''?opts.hcpIndex:''}
-function paintVirtual(){const on=!!(tour&&tour.virtual);const flag=$('#vflag');if(flag)flag.hidden=!on;const box=$('#virtbox');if(box)box.style.display=on?'block':'none';if(!on)return;
+function windowClosed(){return !!(tour&&tour.virtual&&tour.end&&todayKey()>tour.end)}
+function paintVirtual(){const on=!!(tour&&tour.virtual);const flag=$('#vflag');if(flag)flag.hidden=!on;const box=$('#virtbox');if(box)box.style.display=on?'block':'none';
+ const rb=$('#replaybox');if(rb)rb.style.display=on?'block':'none';
+ const note=$('#lbnote');if(note)note.textContent=!on?'':windowClosed()?tr('Final results','Final results'):tr('In progress. Each player can finish on a different day.','In progress. Puwedeng magkaibang araw.');
+ const rw=$('#rwindow');if(rw)rw.textContent=!on?'':windowClosed()?tr('The date window has closed. Replay ends with the final results.','Tapos na ang petsa. Final results sa dulo ng replay.'):tr('Play any time from '+(tour.start||'')+' through '+(tour.end||'')+'. Replay runs every round together, hole by hole.','Puwede sa '+(tour.start||'')+' hanggang '+(tour.end||'')+'. Hole by hole ang replay, sabay ang lahat.');
+ paintSpeed();if(!on)return;
  const sel=$('#vcourse');if(sel){const keys=Object.keys(courses),sig=keys.join('\n')+'|'+cur;if(sel.dataset.sig!==sig){sel.innerHTML=keys.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');sel.dataset.sig=sig;sel.value=cur}}
  const meta=$('#vmeta');if(meta){const fmt=tour.format==='gross'?'Stroke play, gross':tour.format==='stableford'?'Stableford':'Stroke play, net';const allow=tour.allowance!=null?tour.allowance:100;
   meta.textContent=fmt+' · '+(tour.start||'')+' – '+(tour.end||'')+' · '+allow+'%'+(tour.maxIndex!=null&&tour.maxIndex!==''?' · max '+tour.maxIndex:'')}
@@ -792,6 +799,86 @@ function saveVirtCourse(){if(!tour||!tour.virtual)return;applyVirtForm();paintHc
  const ev={t:'player',name:tour.name,...myCard()};if(tstate)apply({...ev,id:myId});drawLB();
  pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});say(tr('Course handicap saved.','Naka-save ang course handicap.'))}
 function askAttest(){if(!tour)return say(tr('Join a tournament first.','Sumali muna sa tournament.'));sendMsg((tour.name||'A player')+' asks a playing partner to attest the card.',true)}
+let replayTimer=null,replaySpeed=1,replayAt=-1,replayEvents=null,replayLog=[];
+function paintSpeed(){$$('#rspeed button').forEach(b=>{const on=+b.dataset.spd===replaySpeed;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on?'true':'false')})}
+function stopReplay(){if(replayTimer){clearInterval(replayTimer);replayTimer=null}}
+function resetReplay(){stopReplay();replayAt=-1;replayEvents=null;replayLog=[];const line=$('#rline');if(line)line.textContent='';const tb=$('#rlb');if(tb)tb.innerHTML='';const log=$('#rlog');if(log)log.innerHTML=''}
+function tourFormat(){return tstate&&(tstate.format==='gross'||tstate.format==='stableford')?tstate.format:'net'}
+function ahead(a,b,format){if(!a||!b)return 0;if(format==='stableford')return a.points-b.points;if(format==='gross')return b.grossToPar-a.grossToPar;return b.netToPar-a.netToPar}
+function soleLeaderName(rows,format){const p=(rows||[]).filter(r=>r.thru>0);if(!p.length)return '';if(p.length===1||ahead(p[0],p[1],format)>0)return p[0].n;return ''}
+function tiedForLead(rows,format,name){const p=(rows||[]).filter(r=>r.thru>0);if(p.length<2||ahead(p[0],p[1],format)!==0)return false;return p[0].n===name||p[1].n===name}
+function holePhrase(name,hole,rel){
+ if(rel<=-3)return tr(name+' makes an albatross on '+hole,name+', albatross sa '+hole);
+ const word={'-2':['eagles','eagle'],'-1':['birdies','birdie'],'0':['pars','par'],'1':['bogeys','bogey'],'2':['double bogeys','double bogey']}[String(rel)];
+ if(word)return tr(name+' '+word[0]+' '+hole,name+', '+word[1]+' sa '+hole);
+ const n=rel>0?'+'+rel:String(rel);return tr(name+' scores '+n+' on '+hole,name+', '+n+' sa '+hole)}
+function leadClause(name,before,after,format){
+ const now=soleLeaderName(after,format),was=soleLeaderName(before,format);
+ if(now===name&&was!==name)return tr(' to take the lead',' at nunguna');
+ if(now!==name&&tiedForLead(after,format,name)&&!tiedForLead(before,format,name))return tr(' to tie the lead',' at tabla sa unahan');
+ return ''}
+function holeRel(p,hole,format){
+ const pars=(p.pars&&p.pars.length)?p.pars:(tstate.pars||[]);
+ const gtp=scoreVal(p.scores&&p.scores[hole])-(+pars[hole-1]||4);
+ if(format==='gross')return gtp;
+ const hcp=playingHandicap(p.index,p.slope,p.rating,coursePar(pars),tstate.allowance,tstate.maxIndex);
+ return gtp-(hcp?strokesOn(hcp.playing,hole,p.si):0)}
+function buildReplay(){
+ const events=[];if(!tstate)return [{kind:'end'}];
+ for(let h=1;h<=18;h++){const who=[];
+  for(const[id,p]of Object.entries(tstate.players)){const s=scoreVal(p.scores&&p.scores[h]);if(s>0)who.push({kind:'score',id,hole:h,name:p.name||'Player',ts:scoreTs(p.scores[h])})}
+  who.sort((a,b)=>a.ts-b.ts||String(a.name).localeCompare(String(b.name))||String(a.id).localeCompare(String(b.id)));
+  if(who.length)events.push({kind:'hole',hole:h},...who)}
+ events.push({kind:'end'});return events}
+function playersThrough(n){
+ const allow=new Set();
+ for(let i=0;i<=n&&replayEvents;i++){const ev=replayEvents[i];if(ev&&ev.kind==='score')allow.add(ev.id+':'+ev.hole)}
+ const out={};
+ for(const[id,p]of Object.entries((tstate&&tstate.players)||{})){const scores={};
+  for(let h=1;h<=18;h++)if(allow.has(id+':'+h))scores[h]=scoreVal(p.scores[h]);
+  out[id]={name:p.name,course:p.course,pars:p.pars,rating:p.rating,slope:p.slope,index:p.index,si:p.si,attestedBy:p.attestedBy,scores}}
+ return out}
+function boardHtml(players,flashId){
+ const fmt=tourFormat();
+ const rows=sortRows(Object.entries(players).map(([id,p])=>({id,...playerRow(p,fmt,tstate.allowance,tstate.maxIndex,tstate.pars)})),fmt);
+ const mark=r=>r.attested?' ✓':'';
+ let head,cell;
+ if(fmt==='stableford'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>Pts</th><th>Thru</th></tr>';cell=r=>`<td><b>${r.thru?r.points:''}</b></td><td>${r.thru}</td>`}
+ else if(fmt==='gross'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.grossToPar):'-'}</b></td><td>${r.thru}</td><td>${r.gross||''}</td>`}
+ else{head='<tr><th>#</th><th>Player</th><th>Course</th><th>Net</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.netToPar):'-'}</b></td><td>${r.thru}</td><td>${r.net||''}</td>`}
+ return {rows,html:head+rows.map((r,i)=>`<tr class="${r.id===flashId?'flash':''}"><td>${i+1}</td><td style="text-align:left">${esc(r.n)}${mark(r)}</td><td style="text-align:left">${esc(r.course||'')}</td>${cell(r)}</tr>`).join('')}}
+function resultsLine(rows){
+ const played=(rows||[]).filter(r=>r.thru>0);
+ if(!replayEvents||replayEvents.length<=1||!played.length)return tr('No hole scores to replay yet.','Wala pang score para i-replay.');
+ const fmt=tourFormat(),a=played[0],b=played[1],tied=!!(b&&ahead(a,b,fmt)===0);
+ const how=fmt==='stableford'?a.points+' '+tr('points','points'):relS(fmt==='gross'?a.grossToPar:a.netToPar);
+ if(!windowClosed()){const who=tied?a.n+' is tied for the lead':a.n+' leads';return tr('In progress through '+(tour.end||'')+'. Final results after the window closes. '+who+' at '+how+'.','Bukas pa hanggang '+(tour.end||'')+'. Final results pagkasara. '+(tied?'Tabla si ':'Nangunguna si ')+a.n+' sa '+how+'.')}
+ if(tied){const names=[];for(const r of played){if(ahead(a,r,fmt)!==0)break;names.push(r.n)}return tr('Final results. '+names.join(' and ')+' tie at '+how+'.','Final results. Tabla sina '+names.join(' at ')+' sa '+how+'.')}
+ return tr('Final results. '+a.n+' wins at '+how+'.','Final results. Nanalo si '+a.n+' sa '+how+'.')}
+function showReplayFrame(){
+ if(!replayEvents||!tstate)return;const ev=replayEvents[replayAt];if(!ev)return;
+ const flash=ev.kind==='score'?ev.id:'';
+ const view=boardHtml(playersThrough(replayAt),flash);
+ const tb=$('#rlb');if(tb)tb.innerHTML=view.html;
+ let line='';
+ if(ev.kind==='hole')line=tr('Hole '+ev.hole,'Hole '+ev.hole);
+ else if(ev.kind==='score'){const p=tstate.players[ev.id]||{},fmt=tourFormat(),rel=holeRel(p,ev.hole,fmt);
+  const before=boardHtml(playersThrough(replayAt-1),'').rows;
+  line=holePhrase(ev.name,ev.hole,rel)+(fmt==='stableford'?tr(' for '+stablefordPoints(rel)+' points',', '+stablefordPoints(rel)+' points'):'')+leadClause(ev.name,before,view.rows,fmt);
+  replayLog.push(line);replayLog=replayLog.slice(-40);say(line)}
+ else{line=resultsLine(view.rows);say(line)}
+ const el=$('#rline');if(el)el.textContent=line;
+ const log=$('#rlog');if(log)log.innerHTML=replayLog.slice().reverse().map(t=>'<div>'+esc(t)+'</div>').join('')}
+function ensureReplay(){if(replayAt<0||!replayEvents){replayEvents=buildReplay();replayAt=-1;replayLog=[]}}
+function replayDelay(){return Math.max(250,Math.round(1200/replaySpeed))}
+function replayTick(){if(!replayEvents||replayAt+1>=replayEvents.length){stopReplay();return}replayAt++;showReplayFrame();if(replayEvents[replayAt]&&replayEvents[replayAt].kind==='end')stopReplay()}
+function startReplay(){if(!tour||!tour.virtual)return;if(replayEvents&&replayAt>=replayEvents.length-1){replayAt=-1;replayLog=[];replayEvents=null}ensureReplay();stopReplay();replayTimer=setInterval(replayTick,replayDelay())}
+function setReplaySpeed(n){replaySpeed=n===2||n===4?n:1;paintSpeed();if(replayTimer){stopReplay();replayTimer=setInterval(replayTick,replayDelay())}}
+function replayStep(){if(!tour||!tour.virtual)return;stopReplay();ensureReplay();replayTick()}
+function replayNextHole(){if(!tour||!tour.virtual)return;stopReplay();ensureReplay();
+ const start=(replayAt>=0&&replayEvents[replayAt]&&replayEvents[replayAt].hole)||0;let guard=0;
+ while(replayAt+1<replayEvents.length&&guard++<80){replayAt++;const ev=replayEvents[replayAt];if(ev.kind==='end'||(ev.kind==='hole'&&ev.hole>start))break}
+ showReplayFrame()}
 $('#tj').onclick=()=>join($('#tcode').value,$('#tname').value,null,!!($('#tpractice')&&$('#tpractice').checked));
 $('#tvirtual').onchange=()=>{const on=$('#tvirtual').checked;const box=$('#tvirtualbox');if(box)box.style.display=on?'block':'none';
  if(on){if($('#tstart')&&!$('#tstart').value)$('#tstart').value=todayKey();if($('#tend')&&!$('#tend').value)$('#tend').value=addDaysKey(6)}};
@@ -808,9 +895,12 @@ for(const id of ['vrating','vslope','vindex']){const el=$('#'+id);if(el)el.oninp
 $('#vcourse').onchange=()=>{const next=$('#vcourse').value;if(!next||next===cur||!courses[next])return;
  if(totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.'))){$('#vcourse').value=cur;return}
  cur=next;round=newRound();hole=1;virtKey='';save();render();if(map)fitGreens()};
+$('#rplay').onclick=startReplay;$('#rpause').onclick=stopReplay;$('#rstep').onclick=replayStep;$('#rhole').onclick=replayNextHole;
+$('#rreset').onclick=()=>{resetReplay();const line=$('#rline');if(line&&tour&&tour.virtual)line.textContent=tr('Ready to replay.','Handa na ang replay.')};
+$('#rspeed').onclick=e=>{const b=e.target.closest('[data-spd]');if(!b)return;setReplaySpeed(+b.dataset.spd)};
 $('#vattest').onclick=e=>{const b=e.target.closest('[data-attest]');if(!b||!tour)return;const playerId=b.getAttribute('data-attest');if(!playerId||playerId===myId)return;
  const ev={t:'attest',playerId,by:tour.name,name:tour.name};if(tstate)apply({...ev,id:myId});drawLB();pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});say(tr('Card attested.','Na-attest na ang card.'))};
-$('#leave').onclick=()=>{tour=null;es?.close();save();$('#tjoin').style.display='block';$('#tin').style.display='none';const pb=$('#pracbox');if(pb)pb.style.display='none';const flag=$('#tpracflag');if(flag)flag.hidden=true;const vf=$('#vflag');if(vf)vf.hidden=true;const vb=$('#virtbox');if(vb)vb.style.display='none'};
+$('#leave').onclick=()=>{tour=null;es?.close();resetReplay();save();$('#tjoin').style.display='block';$('#tin').style.display='none';const pb=$('#pracbox');if(pb)pb.style.display='none';const flag=$('#tpracflag');if(flag)flag.hidden=true;const vf=$('#vflag');if(vf)vf.hidden=true;const vb=$('#virtbox');if(vb)vb.style.display='none';const rb=$('#replaybox');if(rb)rb.style.display='none';const note=$('#lbnote');if(note)note.textContent=''};
 $('#share').onclick=()=>{if(!tour)return;const u=location.origin+location.pathname+'?t='+tour.code+(tour.practice?'&p=1':'')+(tour.virtual?'&v=1':'');const title=tour.practice?'Join my xLooper practice tournament':tour.virtual?'Join my xLooper online tournament':'Join my xLooper tournament';navigator.share?navigator.share({title,text:(tour.practice?'Practice tournament code ':'Tournament code ')+tour.code,url:u}).catch(()=>{}):(navigator.clipboard.writeText(u),say(tr('Link copied.','Na-copy ang link.')))};
 const qparams=new URLSearchParams(location.search);const qt=qparams.get('t');if(qparams.get('p')==='1'){const box=$('#tpractice');if(box)box.checked=true}
 if(qparams.get('v')==='1'){const box=$('#tvirtual');if(box)box.checked=true;const vb=$('#tvirtualbox');if(vb)vb.style.display='block';if($('#tstart')&&!$('#tstart').value)$('#tstart').value=todayKey();if($('#tend')&&!$('#tend').value)$('#tend').value=addDaysKey(6)}
