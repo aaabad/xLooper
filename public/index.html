@@ -36,20 +36,40 @@ small{color:#9bb}
 #xircle{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:2000;overflow:auto;padding:16px 12px calc(16px + env(safe-area-inset-bottom))}
 #xircle .card{max-width:440px;margin:12px auto}#xircle label{display:flex;gap:10px;align-items:flex-start;font-size:16px;line-height:1.35}
 #xircle label input{width:auto;flex:0 0 auto;margin-top:3px}#xi-err{color:#ffd23f;min-height:1.2em}
+.seg{display:flex;border-radius:14px;overflow:hidden;border:2px solid #ffd23f;margin:8px 0}
+.seg button{flex:1;background:#0b3d1e;color:#fff;border:0;font-weight:800;font-size:18px;min-height:52px;padding:10px}
+.seg button.on{background:#ffd23f;color:#06210f}
+.seg button:active,.seg button.pressed{filter:brightness(1.45);outline:3px solid #fff;outline-offset:-3px}
+.badge{display:inline-block;background:#ffd23f;color:#06210f;border-radius:8px;padding:1px 8px;font-size:14px;font-weight:800;margin-left:6px}
+#simban{flex:none;background:#c62828;color:#fff;text-align:center;font-weight:900;letter-spacing:.22em;font-size:20px;padding:8px 12px}
+#simban[hidden],#unitask[hidden],#simbox[hidden],#haz:empty{display:none}
+label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
 </style></head><body>
 <button type="button" id="upd" hidden>New version, tap to refresh</button>
 <div id="toast" hidden></div>
 <header><div class="logo"><b>x</b>Looper</div><div style="display:flex;gap:8px;align-items:center"><select id="lang" aria-label="Language" style="width:auto;font-size:15px;padding:6px 8px"><option value="en">English</option><option value="tl">Taglish</option></select><div id="gps" style="font-size:15px">GPS…</div></div></header>
+<div id="simban" hidden>SIMULATION</div>
 <div id="screens">
 <div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes" data-en="Switch" data-tl="Lipat">Switch</button><button class="b b2" id="nearno" data-en="Not now" data-tl="Huwag muna">Not now</button></div></div>
 <section id="s-caddy" class="on">
+ <div id="unitask" class="card" hidden>
+  <b data-en="How should xLooper measure distance?" data-tl="Paano sukatin ang distansya?">How should xLooper measure distance?</b>
+  <div class="row"><button type="button" class="b" id="askYd" data-en="Yards" data-tl="Yarda">Yards</button><button type="button" class="b b2" id="askM" data-en="Meters" data-tl="Metro">Meters</button></div>
+ </div>
  <div class="row"><button class="b b2" id="prev">◀</button><div style="text-align:center;flex:2"><div style="font-size:30px;font-weight:800"><span data-en="Hole" data-tl="Hole">Hole</span> <span id="hn">1</span></div><small><span data-en="Par" data-tl="Par">Par</span> <span id="hp">4</span> · <span id="cname"></span></small></div><button class="b b2" id="next">▶</button></div>
+ <div class="seg" role="group" aria-label="Distance units"><button type="button" id="uYd" data-en="Yards" data-tl="Yarda">Yards</button><button type="button" id="uM" data-en="Meters" data-tl="Metro">Meters</button></div>
  <div class="row" style="align-items:flex-end;text-align:center;margin-top:0">
   <div><div style="font-size:42px;font-weight:900;line-height:1" id="ydF">—</div><div class="sub" data-en="front" data-tl="harap">front</div></div>
   <div style="flex:1.4"><div class="big" id="yd">—</div><div class="sub"><span data-en="center" data-tl="gitna">center</span> <span id="fb"></span></div></div>
   <div><div style="font-size:42px;font-weight:900;line-height:1" id="ydB">—</div><div class="sub" data-en="back" data-tl="likod">back</div></div>
  </div>
  <div class="sub" style="font-size:28px;margin:8px;color:#9be564" id="club">&nbsp;</div>
+ <div class="sub" id="haz" style="font-size:18px;color:#ffd23f"></div>
+ <div id="simbox" class="card" hidden>
+  <div class="row"><button type="button" class="b b2" id="simWalk">Walk 50 yds</button><button type="button" class="b b2" id="simHit" data-en="Hit shot" data-tl="Tumira">Hit shot</button></div>
+  <div class="row"><button type="button" class="b b2" id="simGreen" data-en="Jump to green" data-tl="Punta sa green">Jump to green</button><button type="button" class="b b2" id="simNext" data-en="Next tee" data-tl="Susunod na tee">Next tee</button></div>
+  <small data-en="Tap the map to place yourself. This round is practice." data-tl="I-tap ang mapa para pumwesto. Practice round ito.">Tap the map to place yourself. This round is practice.</small>
+ </div>
  <div id="log"></div>
  <div class="row"><button class="b mic" id="mic" data-en="🎤 Talk to xLooper" data-tl="🎤 Kausapin si xLooper">🎤 Talk to xLooper</button></div>
  <div class="row"><button class="b" id="bYd" data-en="Yardage" data-tl="Gaano kalayo">Yardage</button><button class="b" id="bClub" data-en="What club" data-tl="Anong club">What club</button></div>
@@ -78,16 +98,34 @@ small{color:#9bb}
  <div id="getbox" style="display:none"><div class="row"><input id="coursein" placeholder="Paste code or link"><button class="b" id="coursego" style="flex:0 0 120px;font-size:18px">Preview</button></div><div id="cprev"></div></div></div>
  <div id="tot" class="sub" style="font-size:24px;margin:8px"></div>
  <table id="sc"></table>
+ <label id="keepWrap" class="check" style="display:none"><input type="checkbox" id="keepPractice" style="width:auto"> <span data-en="Save this practice round in history" data-tl="I-save ang practice round sa history">Save this practice round in history</span></label>
  <div class="row"><button class="b" id="fin" data-en="Finish &amp; save round" data-tl="Tapusin at i-save">Finish &amp; save round</button><button class="b red" id="newr" data-en="New round" data-tl="Bagong round">New round</button></div>
  <h3 data-en="History" data-tl="History">History</h3><div id="hist"></div></section>
 <section id="s-clubs"><h3 id="clubhead" data-en="My distances (carry, yds)" data-tl="Mga distansya ko (carry, yds)">My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub" data-en="+ Club" data-tl="+ Club">+ Club</button><button class="b b2" id="resetc" data-en="Reset" data-tl="Reset">Reset</button></div>
- <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> <span id="lblAuto" data-en="Auto-read new tournament messages" data-tl="Auto-basahin ang bagong tournament messages">Auto-read new tournament messages</span></label><br><label><input type="checkbox" id="metric" style="width:auto"> <span id="lblMetric" data-en="Distances in meters" data-tl="Distansya sa metro">Distances in meters</span></label></div>
+ <div class="card"><b data-en="Distance units" data-tl="Yunit ng distansya">Distance units</b>
+ <div class="seg" role="group" aria-label="Distance units"><button type="button" id="sYd" data-en="Yards" data-tl="Yarda">Yards</button><button type="button" id="sM" data-en="Meters" data-tl="Metro">Meters</button></div>
+ <label><input type="checkbox" id="autoread" style="width:auto"> <span id="lblAuto" data-en="Auto-read new tournament messages" data-tl="Auto-basahin ang bagong tournament messages">Auto-read new tournament messages</span></label>
+ <label class="check"><input type="checkbox" id="sim" style="width:auto"> <span data-en="Simulation / test mode" data-tl="Simulation / test mode">Simulation / test mode</span></label>
+ <small data-en="Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them." data-tl="Papalitan ang GPS para makapag-practice sa bahay. Practice ang round maliban kung i-save mo.">Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them.</small>
+ <label id="countSimLbl" class="check" style="display:none"><input type="checkbox" id="countSim" style="width:auto"> <span data-en="Count simulated scores on a real tournament" data-tl="Bilangin ang simulation sa totoong tournament">Count simulated scores on a real tournament</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.9 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.10 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
- <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)"><div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
- <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div><small>Create uses the current course pars.</small></div>
- <div id="tin" style="display:none"><div class="card"><b id="ttitle"></b> · code <b id="tcd"></b> <button class="b b2" id="share" style="min-height:40px;padding:6px 10px;font-size:16px">Share link</button> <button class="b b2" id="leave" style="min-height:40px;padding:6px 10px;font-size:16px">Leave</button><br><small id="tstat"></small></div>
+ <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)">
+ <label class="check"><input type="checkbox" id="tpractice" style="width:auto"> <span data-en="Practice code (dry run)" data-tl="Practice code (dry run)">Practice code (dry run)</span></label>
+ <div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
+ <label class="check"><input type="checkbox" id="tmakePractice" style="width:auto"> <span data-en="Create as PRACTICE" data-tl="Gawing PRACTICE">Create as PRACTICE</span></label>
+ <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div>
+ <small data-en="Create uses the current course pars. A practice event has its own board. Real players join with the practice link. Simulated players are optional." data-tl="Ginagamit ang pars ng course. May sariling board ang practice. Pwedeng sumali ang totoong players sa practice link. Opsyonal ang simulated players.">Create uses the current course pars. A practice event has its own board. Real players join with the practice link. Simulated players are optional.</small></div>
+ <div id="tin" style="display:none"><div class="card"><b id="tpracflag" hidden style="color:#ffd23f;letter-spacing:.12em">PRACTICE</b> <b id="ttitle"></b> · code <b id="tcd"></b> <button class="b b2" id="share" style="min-height:40px;padding:6px 10px;font-size:16px">Share link</button> <button class="b b2" id="leave" style="min-height:40px;padding:6px 10px;font-size:16px">Leave</button><br><small id="tstat"></small></div>
+ <div id="pracbox" class="card" style="display:none">
+  <b style="color:#ffd23f;letter-spacing:.12em">PRACTICE</b>
+  <p style="margin:6px 0;font-size:16px" data-en="Real players join with the practice link and can use GPS or simulation. Simulated players are optional." data-tl="Pwedeng sumali ang totoong players sa practice link, GPS o simulation. Opsyonal ang simulated players.">Real players join with the practice link and can use GPS or simulation. Simulated players are optional.</p>
+  <input id="botnames" placeholder="Names, comma separated (optional)" data-en="Names, comma separated (optional)" data-tl="Mga pangalan, hatiin ng comma (optional)">
+  <div class="row"><input id="botn" type="number" min="1" max="12" value="3" style="flex:0 0 80px"><button type="button" class="b b2" id="addbots" style="font-size:16px" data-en="Add simulated players" data-tl="Dagdag simulated players">Add simulated players</button></div>
+  <div class="row"><button type="button" class="b b2" id="adv1" style="font-size:16px" data-en="Advance 1 hole" data-tl="Isang hole">Advance 1 hole</button><button type="button" class="b" id="playall" style="font-size:16px" data-en="Play all" data-tl="Laro lahat">Play all</button></div>
+  <div class="row"><button type="button" class="b" id="promote" style="font-size:16px" data-en="Promote to real" data-tl="Gawing real">Promote to real</button><button type="button" class="b b2" id="freshreal" style="font-size:16px" data-en="New real tournament" data-tl="Bagong real tournament">New real tournament</button></div>
+ </div>
  <h3>Leaderboard</h3><table id="lb"></table>
  <h3>Chat & announcements</h3><div class="msgs card" id="msgs"></div>
  <div class="row"><input id="mtxt" placeholder="Message"><button class="b" id="msend" style="flex:0 0 80px">Send</button></div>

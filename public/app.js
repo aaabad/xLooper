@@ -1,13 +1,18 @@
-// xLooper v0.9 – voice golf caddy PWA
+// xLooper v0.10 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
 const DEF_CLUBS=[['Driver',200],['3W',180],['5H',165],['6i',150],['7i',140],['8i',130],['9i',120],['PW',105],['GW',90],['SW',75]];
 let courses=L('courses',{'My Course':{pars:[4,4,3,5,4,4,3,4,5,4,4,3,5,4,4,3,4,5],greens:{}}});
 let cur=L('cur',Object.keys(courses)[0]); if(!courses[cur])cur=Object.keys(courses)[0];
-let round=L('round',null), hist=L('hist',[]), clubs=L('clubs',DEF_CLUBS), hole=L('hole',1), tour=L('tour',null), opts=L('opts',{autoread:true,metric:false,lang:'en'});
+let round=L('round',null), hist=L('hist',[]), clubs=L('clubs',DEF_CLUBS), hole=L('hole',1), tour=L('tour',null);
+const hadOpts=localStorage.getItem('xl.opts')!=null;
+let opts=L('opts',{autoread:true,metric:false,lang:'en'});
 if(!opts||typeof opts!=='object')opts={autoread:true,metric:false,lang:'en'};
 if(opts.lang!=='tl')opts.lang='en';
+opts.metric=opts.metric===true; opts.sim=opts.sim===true; opts.countSim=opts.countSim===true;
+if(!hadOpts)opts.unitsSet=false; else if(opts.unitsSet!==true)opts.unitsSet=true;
+let bots=L('bots',[]); if(!Array.isArray(bots))bots=[];
 let pos=null, acc=null, shot=L('shot',null), lastHeard=L('heard',0), msgs=[], tstate=null;
 let searchHits=[], loadingCourse=false, autoTried=false, missSig='';
 let opGen=0, inflight=null, autoCtl=null, resultsLocked=false, loadToken=0;
@@ -16,9 +21,10 @@ let xstate=L('xircle',{opens:0,asks:0,at:0,signup:null});
 if(!xstate||typeof xstate!=='object'||Array.isArray(xstate))xstate={opens:0,asks:0,at:0,signup:null};
 xstate.opens=(+xstate.opens||0)+1;P('xircle',xstate);
 const C=()=>courses[cur], par=h=>C().pars[h-1]||4;
-const save=()=>{P('courses',courses);P('cur',cur);P('round',round);P('hist',hist);P('clubs',clubs);P('hole',hole);P('tour',tour);P('opts',opts);P('shot',shot)};
-const newRound=()=>({course:cur,date:new Date().toISOString(),holes:{}});
+const save=()=>{P('courses',courses);P('cur',cur);P('round',round);P('hist',hist);P('clubs',clubs);P('hole',hole);P('tour',tour);P('opts',opts);P('shot',shot);P('bots',bots)};
+const newRound=()=>({course:cur,date:new Date().toISOString(),holes:{},practice:!!opts.sim});
 if(!round||round.course!==cur)round=newRound();
+if(opts.sim)round.practice=true;
 // ---------- speech ----------
 function taglish(){return opts.lang==='tl'}
 function tr(en,tl){return taglish()?tl:en}
@@ -49,9 +55,14 @@ function listen(cb,prompt){if(!SR){say(tr("Voice input isn't supported in this b
 // ---------- geo ----------
 const R=6371e3,rad=x=>x*Math.PI/180;
 function dist(a,b){const dl=rad(b[0]-a[0]),dn=rad(b[1]-a[1]),h=Math.sin(dl/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
-const yds=m=>Math.round(opts.metric?m:m*1.09361),unit=()=>opts.metric?'meters':'yards';
-if('geolocation'in navigator)navigator.geolocation.watchPosition(p=>{pos=[p.coords.latitude,p.coords.longitude];acc=p.coords.accuracy;$('#gps').textContent='GPS ±'+Math.round(acc*1.09)+'y';render();considerNearby();maybeAutoCourse();if(me)me.setLatLng(pos)},e=>$('#gps').textContent='GPS: '+e.message,{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
-else $('#gps').textContent='No GPS';
+const M_PER_YD=0.9144;
+const yds=m=>Math.round(opts.metric?m:m*1.09361),unit=()=>opts.metric?'meters':'yards',unitTl=()=>opts.metric?'metro':'yarda',unitShort=()=>opts.metric?'m':'yds';
+const clubShown=yards=>opts.metric?Math.round(+yards*M_PER_YD):Math.round(+yards);
+const clubStored=n=>{const v=+n||0;return opts.metric?Math.round(v/M_PER_YD):Math.round(v)};
+function gpsLabel(){if(opts.sim)return 'SIM ±'+(acc==null?'':yds(acc)+' '+unitShort());if(acc==null)return 'GPS…';return 'GPS ±'+yds(acc)+' '+unitShort()}
+function onFix(p){if(opts.sim)return;pos=[p.coords.latitude,p.coords.longitude];acc=p.coords.accuracy;const g=$('#gps');if(g)g.textContent=gpsLabel();render();considerNearby();maybeAutoCourse();if(me)me.setLatLng(pos)}
+if('geolocation'in navigator)navigator.geolocation.watchPosition(onFix,e=>{if(!opts.sim){$('#gps').textContent='GPS: '+e.message}},{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+else if(!opts.sim)$('#gps').textContent='No GPS';
 let wake;async function keepAwake(){try{wake=await navigator.wakeLock?.request('screen')}catch{}}document.addEventListener('visibilitychange',()=>document.visibilityState==='visible'&&keepAwake());keepAwake();
 const toGreen=()=>{const g=C().greens[hole];return g&&pos?dist(pos,g):null};
 function clubFor(y){const s=[...clubs].sort((a,b)=>a[1]-b[1]);if(y<=40)return['putter or wedge chip',y];for(const c of s)if(c[1]>=y-4)return c;return s[s.length-1]}
@@ -59,17 +70,23 @@ function clubFor(y){const s=[...clubs].sort((a,b)=>a[1]-b[1]);if(y<=40)return['p
 function holeTargets(h){try{return window.XLMap?XLMap.targets(C(),h,pos):null}catch{return null}}
 function sayNoGreen(){say(tr(`No green set for hole ${hole}. Open the map and tap the green.`,`Walang green sa hole ${hole}. Buksan ang map, tap mo ang green.`))}
 function sayWait(){say(tr('Waiting for GPS.','Hintayin ang GPS.'))}
+function hazardKind(kind){if(kind==='bunker')return 'bunker';if(kind==='lateral_water_hazard')return taglish()?'lateral water':'lateral water';return taglish()?'tubig':'water'}
+function nearestHazard(){if(!pos)return null;const info=C().holes&&(C().holes[hole]||C().holes[String(hole)]);const line=info&&info.line;let best=null;
+ for(const h of C().hazards||[]){if(!h||!h.pts||!h.pts.length)continue;let lat=0,lon=0;for(const p of h.pts){lat+=+p[0];lon+=+p[1]}lat/=h.pts.length;lon/=h.pts.length;if(!isFinite(lat))continue;
+  if(line&&line.length>=2&&dist([lat,lon],line[0])>500&&dist([lat,lon],line[line.length-1])>500)continue;const d=dist(pos,[lat,lon]);if(d>250||(best&&d>=best.d))continue;best={d,kind:h.kind,label:hazardKind(h.kind)}}
+ return best}
+function hazardSentence(){const hz=nearestHazard();if(!hz)return '';const n=yds(hz.d),u=taglish()?unitTl():unit();return tr(` Nearest ${hz.label} is ${n} ${u}.`,` Pinakamalapit na ${hz.label} ay ${n} ${u}.`)}
 function sayYardage(){const g=C().greens[hole];if(!g)return sayNoGreen();if(!pos)return sayWait();
- const c=yds(dist(pos,g)),t=holeTargets(hole),f=t?yds(dist(pos,t.front)):c,b=t?yds(dist(pos,t.back)):c,u=unit();
- if(f===c&&b===c)return say(tr(`${c} ${u} to the center of the green on hole ${hole}.`,`${c} ${u} sa gitna ng green, hole ${hole}.`));
- say(tr(`${f} ${u} to the front, ${c} to the center, ${b} to the back of the green on hole ${hole}.`,`${f} sa harap, ${c} sa gitna, ${b} sa likod ng green. Hole ${hole}.`))}
-function sayClub(){const d=toGreen();if(d==null)return sayYardage();const y=Math.round(d*1.09361),c=clubFor(y);
+ const c=yds(dist(pos,g)),t=holeTargets(hole),f=t?yds(dist(pos,t.front)):c,b=t?yds(dist(pos,t.back)):c,ue=unit(),ut=unitTl(),hz=hazardSentence();
+ if(f===c&&b===c)return say(tr(`${c} ${ue} to the center of the green on hole ${hole}.`+hz,`${c} ${ut} sa gitna ng green, hole ${hole}.`+hz));
+ say(tr(`${f} ${ue} to the front, ${c} to the center, ${b} to the back of the green on hole ${hole}.`+hz,`${f} sa harap, ${c} sa gitna, ${b} sa likod ng green. Hole ${hole}.`+hz))}
+function sayClub(){const d=toGreen();if(d==null)return sayYardage();const y=Math.round(d*1.09361),c=clubFor(y),n=yds(d),ue=unit(),ut=unitTl();
  const max=clubs.reduce((m,x)=>Math.max(m,x[1]),0),spoken=c[0]==='putter or wedge chip'?tr('putter or wedge chip','putter o wedge'):(taglish()?clubTaglish(c[0]):clubName(c[0]));
- if(taglish())return say(y>max?`${y} yards. ${spoken} muna, hindi aabot, so position lang.`:y<=40?`${y} yards. Chip o putt na.`:`${y} yards sa gitna ng green, ${spoken} ka.`);
- say(y>max?`${y} yards. Hit ${c[0]}, you won't reach, so play for position.`:y<=40?`${y} yards. Chip or putt.`:`${y} yards. I like the ${clubName(c[0])}.`)}
+ if(taglish())return say(y>max?`${n} ${ut}. ${spoken} muna, hindi aabot, so position lang.`:y<=40?`${n} ${ut}. Chip o putt na.`:`${n} ${ut} sa gitna ng green, ${spoken} ka.`);
+ say(y>max?`${n} ${ue}. Hit ${c[0]}, you won't reach, so play for position.`:y<=40?`${n} ${ue}. Chip or putt.`:`${n} ${ue}. I like the ${clubName(c[0])}.`)}
 const clubName=n=>n.replace(/^(\d)i$/,'$1 iron').replace(/^(\d)W$/,'$1 wood').replace(/^(\d)H$/,'$1 hybrid').replace(/^PW$/,'pitching wedge').replace(/^GW$/,'gap wedge').replace(/^SW$/,'sand wedge').replace(/^LW$/,'lob wedge');
 const clubTaglish=n=>String(n).replace(/^Driver$/i,'driver').replace(/^(\d)i$/,'$1-iron').replace(/^(\d)W$/,'$1-wood').replace(/^(\d)H$/,'$1-hybrid').replace(/^PW$/,'pitching wedge').replace(/^GW$/,'gap wedge').replace(/^SW$/,'sand wedge').replace(/^LW$/,'lob wedge');
-function markShot(){if(!pos)return sayWait();if(shot&&shot.hole===hole){const y=yds(dist(shot.at,pos));say(tr(`That shot went ${y} ${unit()}. Marked a new start here.`,`${y} ${unit()} ang tira. Marked ulit dito.`));$('#lastshot').textContent=tr(`Last shot: ${y} ${unit()}`,`Huling tira: ${y} ${unit()}`)}else say(tr('Shot marked. Walk to your ball and say mark shot again.','Marked na ang tira. Pumunta ka sa bola, tapos sabihin mo ulit mark shot.'));shot={hole,at:pos};save()}
+function markShot(){if(!pos)return sayWait();const u=taglish()?unitTl():unit();if(shot&&shot.hole===hole){const y=yds(dist(shot.at,pos));say(tr(`That shot went ${y} ${unit()}. Marked a new start here.`,`${y} ${u} ang tira. Marked ulit dito.`));$('#lastshot').textContent=tr(`Last shot: ${y} ${unit()}`,`Huling tira: ${y} ${u}`)}else say(tr('Shot marked. Walk to your ball and say mark shot again.','Marked na ang tira. Pumunta ka sa bola, tapos sabihin mo ulit mark shot.'));shot={hole,at:pos};save()}
 function totals(){let s=0,pp=0,pr=0,p=0,n=0;for(let h=1;h<=18;h++){const x=round.holes[h];if(x&&x.s){s+=x.s;pp+=x.p||0;pr+=par(h);n++}}return{s,putts:pp,par:pr,n,rel:s-pr}}
 const relTxt=r=>r===0?tr('even par','even'):r>0?`${r} ${tr('over par','over')}`:`${-r} ${tr('under par','under')}`,relS=r=>r===0?'E':r>0?'+'+r:''+r;
 function sayScore(){const t=totals();if(!t.n)return say(tr('No scores yet this round.','Wala pang score sa round na ito.'));say(tr(`Through ${t.n} hole${t.n>1?'s':''} you're at ${t.s}, ${relTxt(t.rel)}, with ${t.putts} putts.`,`After ${t.n} hole${t.n>1?'s':''}, ${t.s} ka, ${relTxt(t.rel)}, ${t.putts} putts.`))}
@@ -81,12 +98,15 @@ function setScore(s,p,h=hole){round.holes[h]={s,p:p??round.holes[h]?.p??0};save(
  say(`Hole ${h}: ${s}${p!=null?`, ${p} putt${p==1?'':'s'}`:''}. ${name}. You're ${relTxt(t.rel)} through ${t.n}.`)}
 function go(h){hole=Math.max(1,Math.min(18,h));shot=null;save();render();const g=C().greens[hole];
  let extra='';if(g&&pos){const c=yds(dist(pos,g)),t=holeTargets(hole),f=t?yds(dist(pos,t.front)):c,b=t?yds(dist(pos,t.back)):c;
-  extra=taglish()?((f===c&&b===c)?` ${c} ${unit()} sa gitna.`:` ${f} sa harap, ${c} sa gitna, ${b} sa likod.`):((f===c&&b===c)?` ${c} ${unit()} to the green.`:` ${f} front, ${c} center, ${b} back.`)}
+  extra=taglish()?((f===c&&b===c)?` ${c} ${unitTl()} sa gitna.`:` ${f} sa harap, ${c} sa gitna, ${b} sa likod.`):((f===c&&b===c)?` ${c} ${unit()} to the green.`:` ${f} front, ${c} center, ${b} back.`)}
  say(taglish()?`Hole ${hole} na tayo. Par ${par(hole)}.`+extra:`Hole ${hole}, par ${par(hole)}.`+extra)}
 // ---------- voice commands ----------
 const NUM={zero:0,one:1,won:1,two:2,to:2,too:2,three:3,four:4,for:4,five:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12,isa:1,dalawa:2,tatlo:3,apat:4,lima:5,anim:6,pito:7,walo:8,siyam:9,sampu:10};
 const nums=t=>t.toLowerCase().replace(/labing-?isa/g,'11').replace(/labing-?dalawa/g,'12').replace(/[a-z]+/g,w=>w in NUM?NUM[w]:w).match(/\d+/g)?.map(Number)||[];
 function command(t){const s=t.toLowerCase();$('#log').textContent='“'+t+'”';
+ const uq=s.replace(/\s+/g,' ').trim();
+ if(/^(?:use |switch to |lumipat sa |sa )?(?:meters|meter|metros|metro)$/.test(uq))return setUnits(true);
+ if(/^(?:use |switch to |lumipat sa |sa )?(?:yards|yardas|yarda)$/.test(uq))return setUnits(false);
  if(/read (the )?message|any message|messages|basahin/.test(s))return readMsgs(true);
  if(/^(send|message|tell|announce|ipadala|mag-?message)/.test(s)){const txt=t.replace(/^(send( a)? message|send|message|tell everyone|tell|announce|ipadala|mag-?message)\s*(that|na)?\s*/i,'');return txt?sendMsg(txt,/announce|anunsyo/.test(s)):voiceMsg()}
  if(/what('?s| is) my score|my score|how am i doing|^total$|score ko|ano(ng)? score|ilan (na )?ang score|ilan na/.test(s))return sayScore();
@@ -98,10 +118,28 @@ function command(t){const s=t.toLowerCase();$('#log').textContent='“'+t+'”';
  if(/markahan ang green|mark (the )?green/.test(s))return markGreenHere();
  if(/anong club|aling club|anong stick|what should i hit|which|club/.test(s))return sayClub();
  if(/gaano ka ?layo|gaano kalayo|kalayo|distansya|yardage|how far|distance|yard|\bfar\b/.test(s))return sayYardage();
- say(tr("Sorry, try: yardage, what club, next hole, score 5, mark shot, or what's my score.","Subukan: gaano kalayo, anong club, susunod na hole, score 5, o score ko."))}
+ say(tr("Sorry, try: yardage, what club, next hole, score 5, mark shot, use yards, use meters, or what's my score.","Subukan: gaano kalayo, anong club, susunod na hole, score 5, yarda, metro, o score ko."))}
+function setUnits(metric){opts.metric=!!metric;opts.unitsSet=true;save();render();say(tr(opts.metric?'Distances in meters.':'Distances in yards.',opts.metric?'Distansya sa metro.':'Distansya sa yarda.'))}
+function greenAt(h){const g=C().greens&&(C().greens[h]??C().greens[String(h)]);return Array.isArray(g)&&g.length>=2&&isFinite(+g[0])&&isFinite(+g[1])?[+g[0],+g[1]]:null}
+function teePoint(h,allowGreen){const c=C();const t=c.tees&&(c.tees[h]||c.tees[String(h)]);if(Array.isArray(t)&&t.length>=2&&isFinite(+t[0])&&isFinite(+t[1]))return [+t[0],+t[1]];
+ const info=c.holes&&(c.holes[h]||c.holes[String(h)]);const line=info&&info.line;if(line&&line.length&&Array.isArray(line[0]))return [+line[0][0],+line[0][1]];return allowGreen?greenAt(h):null}
+function bearingTo(a,b){const y=Math.sin(rad(b[1]-a[1]))*Math.cos(rad(b[0]));const x=Math.cos(rad(a[0]))*Math.sin(rad(b[0]))-Math.sin(rad(a[0]))*Math.cos(rad(b[0]))*Math.cos(rad(b[1]-a[1]));return Math.atan2(y,x)}
+function offsetLL(from,meters,bearing){const d=meters/6371000,lat1=rad(from[0]),lon1=rad(from[1]);const lat2=Math.asin(Math.sin(lat1)*Math.cos(d)+Math.cos(lat1)*Math.sin(d)*Math.cos(bearing));const lon2=lon1+Math.atan2(Math.sin(bearing)*Math.sin(d)*Math.cos(lat1),Math.cos(d)-Math.sin(lat1)*Math.sin(lat2));return [lat2*180/Math.PI,lon2*180/Math.PI]}
+function maybeAutoHole(){if(!opts.sim||!pos||hole>=18)return;const tee=teePoint(hole+1,false),g=greenAt(hole);if(!tee)return;if(dist(pos,tee)<30&&(!g||dist(pos,g)>40)){hole+=1;shot=null;save()}}
+function placeSim(ll){if(!ll||!isFinite(+ll[0])||!isFinite(+ll[1]))return;pos=[+ll[0],+ll[1]];acc=3;maybeAutoHole();render();if(me)me.setLatLng(pos);considerNearby()}
+function setSim(on){opts.sim=!!on;if(opts.sim){round.practice=true;save();const t=teePoint(hole,true)||pos;if(t)placeSim(t);else render();say(tr('Simulation on. You are on the tee.','Simulation on. Nasa tee ka.'))}
+ else{if(!totals().n)round.practice=false;save();render();say(tr('Simulation off. Using real GPS.','Simulation off. Totoong GPS na.'))}}
+function moveSim(meters,lateral){if(!pos){const t=teePoint(hole,true);if(!t)return say(tr('No tee on this hole.','Walang tee sa hole na ito.'));placeSim(t)}
+ const g=greenAt(hole);let br=g&&dist(pos,g)>=1?bearingTo(pos,g):0;let dest=offsetLL(pos,Math.max(0,meters),br);if(lateral)dest=offsetLL(dest,lateral,br+Math.PI/2);placeSim(dest)}
+function walkSim(){moveSim(opts.metric?50:50*M_PER_YD,0)}
+function hitSim(){const g=greenAt(hole);if(!g)return say(tr('No green on this hole yet.','Wala pang green sa hole na ito.'));if(!pos){const t=teePoint(hole,true);if(t)placeSim(t)}
+ const y=Math.round(dist(pos,g)*1.09361),c=clubFor(y);let carry=c[1]*M_PER_YD;const jitter=carry*(Math.random()*0.08-0.04),lateral=carry*(Math.random()*0.06-0.03),remain=dist(pos,g);
+ if(carry+jitter>remain)carry=Math.max(1,remain-4);moveSim(Math.max(1,carry+jitter),lateral);say(tr('Hit the '+clubName(c[0])+'.','Tira ng '+c[0]+'.'))}
+function jumpGreen(){const g=greenAt(hole);if(!g)return say(tr('No green on this hole yet.','Wala pang green sa hole na ito.'));placeSim(g);say(tr('On the green.','Nasa green ka na.'))}
+function nextTee(){hole=hole>=18?1:hole+1;shot=null;const t=teePoint(hole,true);if(t)placeSim(t);else{save();render()}sayYardage()}
 // ---------- render ----------
-function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#cname').textContent=cur;$('#mh').textContent=hole;
- const d=toGreen();$('#yd').textContent=d==null?'—':yds(d);$('#fb').textContent=opts.metric?'(m)':'';
+function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#cname').textContent=cur;const mh=$('#mh');if(mh)mh.textContent=hole;
+ const d=toGreen();$('#yd').textContent=d==null?'—':yds(d);$('#fb').textContent=d==null?'':unitShort();
  const tg=d!=null&&holeTargets(hole);$('#ydF').textContent=tg?yds(dist(pos,tg.front)):'—';$('#ydB').textContent=tg?yds(dist(pos,tg.back)):'—';
  $('#club').textContent=d==null?(C().greens[hole]?tr('Waiting for GPS…','Hintay GPS…'):tr('Set green on Map','I-set ang green sa Map')):(()=>{const y=Math.round(d*1.09361);return y<=40?'Chip / putt':clubFor(y)[0]})();
  const x=round.holes[hole]||{};$('#st').textContent=x.s||0;$('#pt').textContent=x.p||0;
@@ -111,12 +149,28 @@ function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#c
  const t=totals();h+=`<tr><th>Tot</th><th>${C().pars.reduce((a,b)=>a+b,0)}</th><th>${t.s||''}</th><th>${t.putts||''}</th><th>${t.n?relS(t.rel):''}</th></tr>`;$('#sc').innerHTML=h;
  $('#tot').textContent=t.n?`${t.s} (${relS(t.rel)}) ${tr('thru','sa')} ${t.n} · ${t.putts} putts`:tr('No scores yet','Wala pang score');
  $('#course').innerHTML=Object.keys(courses).map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
- $('#hist').innerHTML=hist.slice().reverse().map(r=>`<div class="card">${r.date.slice(0,10)} · ${r.course}: <b>${r.s}</b> (${relS(r.rel)}) · ${r.putts} putts · ${r.n} holes</div>`).join('')||`<small>${tr('No rounds yet','Wala pang round')}</small>`;
- $('#ct').innerHTML=clubs.map((c,i)=>`<tr><td><input data-cn=${i} value="${c[0]}" style="width:90px"></td><td><input type=number data-cy=${i} value=${c[1]} style="width:90px"></td><td><button class="b b2" style="min-height:40px;padding:4px 12px" onclick="clubs.splice(${i},1);save();render()">✕</button></td></tr>`).join('');
- $('#autoread').checked=opts.autoread;$('#metric').checked=opts.metric;drawGreens();showMissing();xircleStatus();applyLang();showSplit()}
+ $('#hist').innerHTML=hist.slice().reverse().map(r=>`<div class="card">${String(r.date||'').slice(0,10)} · ${hx(r.course)}${r.practice?' · practice':''}: <b>${r.s}</b> (${relS(r.rel)}) · ${r.putts} putts · ${r.n} holes</div>`).join('')||`<small>${tr('No rounds yet','Wala pang round')}</small>`;
+ $('#ct').innerHTML=clubs.map((c,i)=>`<tr><td><input data-cn=${i} value="${hx(c[0])}" style="width:90px"></td><td><input type=number data-cy=${i} value=${clubShown(c[1])} style="width:90px"></td><td><button class="b b2" style="min-height:40px;padding:4px 12px" onclick="clubs.splice(${i},1);save();render()">✕</button></td></tr>`).join('');
+ $('#autoread').checked=opts.autoread;drawGreens();showMissing();xircleStatus();paintChrome();applyLang();showSplit()}
+function paintChrome(){const m=!!opts.metric;
+ for(const id of ['uYd','sYd']){const b=$('#'+id);if(b){b.classList.toggle('on',!m);b.setAttribute('aria-pressed',!m?'true':'false')}}
+ for(const id of ['uM','sM']){const b=$('#'+id);if(b){b.classList.toggle('on',m);b.setAttribute('aria-pressed',m?'true':'false')}}
+ const head=$('#clubhead');if(head){head.setAttribute('data-en','My distances (carry, '+(m?'m':'yds')+')');head.setAttribute('data-tl','Mga distansya ko (carry, '+(m?'m':'yds')+')')}
+ const ask=$('#unitask');if(ask)ask.hidden=!!opts.unitsSet;
+ const ban=$('#simban');if(ban)ban.hidden=!opts.sim;
+ const box=$('#simbox');if(box)box.hidden=!opts.sim;
+ const walk=$('#simWalk');if(walk){walk.setAttribute('data-en',m?'Walk 50 m':'Walk 50 yds');walk.setAttribute('data-tl',m?'Lakad 50 m':'Lakad 50 yarda')}
+ const sim=$('#sim');if(sim)sim.checked=!!opts.sim;
+ const cs=$('#countSim');if(cs)cs.checked=!!opts.countSim;
+ const csl=$('#countSimLbl');if(csl)csl.style.display=opts.sim?'flex':'none';
+ const kw=$('#keepWrap');if(kw)kw.style.display=(opts.sim||round.practice)?'flex':'none';
+ const hz=nearestHazard(),hel=$('#haz');if(hel)hel.textContent=hz?hz.label+' '+yds(hz.d)+' '+unitShort():'';
+ const flag=$('#tpracflag');if(flag)flag.hidden=!(tour&&tour.practice);
+ const pb=$('#pracbox');if(pb)pb.style.display=(tour&&tour.practice&&tour.host)?'block':'none';
+ if(opts.sim){const g=$('#gps');if(g)g.textContent=gpsLabel()}}
 function applyLang(){document.documentElement.lang=taglish()?'fil':'en';const sel=$('#lang');if(sel&&sel.value!==(taglish()?'tl':'en'))sel.value=taglish()?'tl':'en';
  $$('[data-en]').forEach(el=>{const s=taglish()?(el.getAttribute('data-tl')??el.getAttribute('data-en')):el.getAttribute('data-en');if(s==null)return;if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')el.placeholder=s;else el.textContent=s});
- const hint=$('#maphint');if(hint)hint.innerHTML=tr(`Search sets the course up from home. Tap the photo to mark a hole that is still missing a green (Hole <span id="mh">${hole}</span>).`,`Pwede sa bahay ang setup. I-tap ang photo kung may hole na walang green (Hole <span id="mh">${hole}</span>).`);
+ const hint=$('#maphint');if(hint)hint.innerHTML=opts.sim?tr('Simulation: tap the map to place yourself.','Simulation: i-tap ang mapa para pumwesto.'):tr(`Search sets the course up from home. Tap the photo to mark a hole that is still missing a green (Hole <span id="mh">${hole}</span>).`,`Pwede sa bahay ang setup. I-tap ang photo kung may hole na walang green (Hole <span id="mh">${hole}</span>).`);
  const sh=$('#searchhint');if(sh)sh.textContent=tr('Works from home. No GPS needed. Find my course, on the caddy, is for when you are standing on the course.','Pwede sa bahay. Hindi kailangan ng GPS. Course ko (GPS), sa caddy, kapag nandoon ka na sa course.')}
 window.go=go;
 // ---------- events ----------
@@ -125,13 +179,20 @@ $('#prev').onclick=()=>go(hole-1);$('#next').onclick=()=>go(hole+1);$('#bYd').on
 $('#mic').onclick=()=>listen(command);$('#bMsgs').onclick=()=>readMsgs(true);$('#bSay').onclick=()=>voiceMsg();
 $$('[data-k]').forEach(b=>b.onclick=()=>{const x=round.holes[hole]||{s:0,p:0};if(b.dataset.k==='s'){x.s=Math.max(0,(x.s||0)+ +b.dataset.d)}else x.p=Math.max(0,(x.p||0)+ +b.dataset.d);round.holes[hole]=x;if(!x.s)delete round.holes[hole];save();render();postScore(hole)});
 $('#sc').onchange=e=>{const t=e.target,d=t.dataset;if(d.par){C().pars[d.par-1]=+t.value||4}else if(d.s){const h=+d.s;if(+t.value)round.holes[h]={...round.holes[h],s:+t.value};else delete round.holes[h];postScore(h)}else if(d.p){const h=+d.p;round.holes[h]={s:0,...round.holes[h],p:+t.value}}save();render()};
-$('#ct').onchange=e=>{const d=e.target.dataset;if(d.cn)clubs[d.cn][0]=e.target.value;if(d.cy)clubs[d.cy][1]=+e.target.value;save();render()};
+$('#ct').onchange=e=>{const d=e.target.dataset;if(d.cn)clubs[d.cn][0]=e.target.value;if(d.cy)clubs[d.cy][1]=clubStored(e.target.value);save();render()};
 $('#addclub').onclick=()=>{clubs.push(['LW',60]);save();render()};$('#resetc').onclick=()=>{clubs=DEF_CLUBS.map(x=>[...x]);save();render()};
-$('#autoread').onchange=e=>{opts.autoread=e.target.checked;save()};$('#metric').onchange=e=>{opts.metric=e.target.checked;save();render()};
+$('#autoread').onchange=e=>{opts.autoread=e.target.checked;save()};
+for(const [id,metric] of [['uYd',false],['sYd',false],['askYd',false],['uM',true],['sM',true],['askM',true]]){const b=$('#'+id);if(b)b.onclick=()=>setUnits(metric)}
+$('#sim').onchange=e=>setSim(e.target.checked);
+$('#countSim').onchange=e=>{opts.countSim=e.target.checked;save()};
+$('#simWalk').onclick=walkSim;$('#simHit').onclick=hitSim;$('#simGreen').onclick=jumpGreen;$('#simNext').onclick=nextTee;
 $('#lang').onchange=()=>{opts.lang=$('#lang').value==='tl'?'tl':'en';save();pickVoice();missSig='';render();say(tr('English.','Taglish na.'))};
 $('#course').onchange=e=>{if(totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return render();cur=e.target.value;round=newRound();hole=1;save();render();if(map)fitGreens()};
 $('#addc').onclick=()=>{const n=$('#newc').value.trim();if(!n)return;courses[n]=courses[n]||{pars:Array(18).fill(4),greens:{},shapes:[]};cur=n;round=newRound();hole=1;$('#newc').value='';save();render()};
-$('#fin').onclick=()=>{const t=totals();if(!t.n)return say(tr('Nothing to save yet.','Wala pang i-save.'));hist.push({...t,course:cur,date:round.date,holes:round.holes});round=newRound();hole=1;save();render();say(tr(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`,`Saved na ang round: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`));maybeXircle()};
+$('#fin').onclick=()=>{const t=totals();if(!t.n)return say(tr('Nothing to save yet.','Wala pang i-save.'));const practice=!!(round.practice||opts.sim);
+ if(!practice||($('#keepPractice')&&$('#keepPractice').checked)){hist.push({...t,course:cur,date:round.date,holes:round.holes,practice});say(tr(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`,`Saved na ang round: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`))}
+ else say(tr('Practice round. Left out of history.','Practice round. Hindi kasama sa history.'));
+ round=newRound();hole=1;save();render();maybeXircle()};
 $('#newr').onclick=()=>{if(confirm(tr('Clear the current card?','Burahin ang card na ito?'))){round=newRound();hole=1;save();render()}};
 // ---------- map ----------
 let map,me,gLayer,osmLayer;
@@ -139,7 +200,7 @@ function initMap(){if(map){setTimeout(()=>map.invalidateSize(),50);return}
  map=LL.map('map',{zoomControl:true}).setView(pos||[40.0,-74.5],pos?17:5);
  LL.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri World Imagery'}).addTo(map);
  me=LL.circleMarker(pos||[0,0],{radius:8,color:'#fff',fillColor:'#2a8cff',fillOpacity:1}).addTo(map);gLayer=LL.layerGroup().addTo(map);osmLayer=LL.layerGroup().addTo(map);
- map.on('click',e=>{C().greens[hole]=[r6(e.latlng.lat),r6(e.latlng.lng)];C().shapes=(C().shapes||[]).filter(s=>+s.hole!==hole);save();render();say(tr(`Green set for hole ${hole}.`,`Naka-set na ang green sa hole ${hole}.`))});drawGreens();fitGreens()}
+ map.on('click',e=>{if(opts.sim){placeSim([e.latlng.lat,e.latlng.lng]);say(tr('Placed you here.','Nandito ka na.'));return}C().greens[hole]=[r6(e.latlng.lat),r6(e.latlng.lng)];C().shapes=(C().shapes||[]).filter(s=>+s.hole!==hole);save();render();say(tr(`Green set for hole ${hole}.`,`Naka-set na ang green sa hole ${hole}.`))});drawGreens();fitGreens()}
 function coursePts(){const pts=[];for(const g of Object.values(C().greens||{}))if(Array.isArray(g)&&g.length>=2)pts.push(g);for(const info of Object.values(C().holes||{}))if(info&&info.line)for(const p of info.line)if(Array.isArray(p))pts.push(p);for(const r of (C().outline&&C().outline.outers)||[])for(const p of r||[])if(Array.isArray(p))pts.push(p);return pts}
 function playingHere(){if(!pos)return false;for(const g of Object.values(C().greens||{}))if(Array.isArray(g)&&g.length>=2&&dist(pos,g)<4000)return true;const o=C().outline;return !!(o&&o.outers&&o.outers.length&&window.XLMap&&XLMap.pointInCourse(pos,o.outers,o.inners||[]))}
 function fitCourse(forceWhole){if(!map)return;const pts=coursePts();if(!forceWhole&&playingHere()){map.setView(pos,17);return}if(pts.length>=2)map.fitBounds(pts,{maxZoom:17,padding:[20,20]});else if(pts.length===1)map.setView(pts[0],17);else if(pos)map.setView(pos,17)}
@@ -148,7 +209,8 @@ function drawGreens(){if(!gLayer)return;gLayer.clearLayers();
  const quiet={interactive:false};
  for(const r of (C().outline&&C().outline.outers)||[])if(r.length>=3)LL.polygon(r,{color:'#fff',weight:2,fill:false,...quiet}).addTo(gLayer);
  const hz={bunker:'#c2a15a',water_hazard:'#3aa0d8',lateral_water_hazard:'#e55'};
- for(const h of C().hazards||[])if(h.pts?.length>=3)LL.polygon(h.pts,{color:hz[h.kind]||'#888',weight:1,fillColor:hz[h.kind]||'#888',fillOpacity:.45,...quiet}).addTo(gLayer);
+ for(const h of C().hazards||[])if(h.pts?.length>=3){LL.polygon(h.pts,{color:hz[h.kind]||'#888',weight:1,fillColor:hz[h.kind]||'#888',fillOpacity:.45,...quiet}).addTo(gLayer);
+  if(pos){let lat=0,lon=0;for(const p of h.pts){lat+=+p[0];lon+=+p[1]}lat/=h.pts.length;lon/=h.pts.length;const d=dist(pos,[lat,lon]);if(d<400)LL.marker([lat,lon],{interactive:false,icon:LL.divIcon({className:'',html:`<div style="color:#fff;font-size:12px;font-weight:800;text-shadow:0 1px 2px #000">${yds(d)} ${unitShort()}</div>`,iconSize:[64,16],iconAnchor:[32,8]})}).addTo(gLayer)}}
  for(const[h,info]of Object.entries(C().holes||{}))if(info.line?.length>=2)LL.polyline(info.line,{color:+h===hole?'#ffd23f':'#fff',weight:+h===hole?3:1,opacity:.75,...quiet}).addTo(gLayer);
  for(const s of C().shapes||[])if(s.kind!=='hazard'&&s.pts?.length>=3)LL.polygon(s.pts,{color:+s.hole===hole?'#ffd23f':'#9be564',weight:2,fillOpacity:.25,...quiet}).addTo(gLayer);
  for(const t of Object.values(C().tees||{}))if(Array.isArray(t)&&t.length>=2)LL.circleMarker(t,{radius:5,color:'#fff',fillColor:'#9be564',fillOpacity:1,weight:1,...quiet}).addTo(gLayer);
@@ -215,6 +277,41 @@ function ringsOf(el){if(!el)return {outers:[],inners:[]};
  if(el.type==='way'&&el.geometry&&el.geometry.length>=3)return {outers:[el.geometry.map(p=>[p.lat,p.lon])],inners:[]};
  if(el.type==='relation'&&el.members){const out=[],inn=[];for(const m of el.members){if(m.type!=='way'||!m.geometry||m.geometry.length<2)continue;const line=m.geometry.map(p=>[p.lat,p.lon]);(m.role==='inner'?inn:out).push(line)}return {outers:stitch(out),inners:stitch(inn)}}
  return {outers:[],inners:[]}}
+const NEAR_M=300;
+function normName(s){return String(s||'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,' ').replace(/\b(the|golf|club|course|links|country|cc|gc)\b/g,' ').replace(/\s+/g,' ').trim()}
+function facilityId(osmId){return String(osmId||'').split('#')[0]}
+function hitPoint(h){return h&&Number.isFinite(+h.lat)&&Number.isFinite(+h.lon)?[+h.lat,+h.lon]:null}
+function hitsNear(a,b){const pa=hitPoint(a),pb=hitPoint(b);
+ if(pa&&b&&b.outers&&b.outers.length&&window.XLMap&&XLMap.pointInCourse(pa,b.outers,b.inners||[]))return true;
+ if(pb&&a&&a.outers&&a.outers.length&&window.XLMap&&XLMap.pointInCourse(pb,a.outers,a.inners||[]))return true;
+ if(!pa||!pb)return false;const d=dist(pa,pb);if(d<=NEAR_M)return true;return d<=800&&a.type&&b.type&&a.type!==b.type}
+function savedForHit(h){const fid=facilityId(h&&h.osmId),nn=normName(h&&h.name);
+ for(const [name,c] of Object.entries(courses)){if(!c||typeof c!=='object')continue;const cid=facilityId(c.osmId||'');
+  if(fid&&cid&&(cid===fid||cid.startsWith(fid+'#')||fid.startsWith(cid+'#')))return name;
+  const cn=normName(c.name||name);if(!nn||cn!==nn)continue;const g=c.greens&&Object.values(c.greens).find(x=>Array.isArray(x)&&x.length>=2&&Number.isFinite(+x[0]));
+  if(!g)return name;const p=hitPoint(h);if(!p||dist(p,[+g[0],+g[1]])<=NEAR_M)return name}return ''}
+function hitRank(h){return (h.type==='relation'?4:h.type==='way'?2:1)+(h.outers&&h.outers.length?2:0)+((h.score||0)/1000)}
+function dedupeHits(hits){const out=[];
+ for(const raw of hits||[]){const h={...raw};const fid=facilityId(h.osmId),nn=normName(h.name);
+  const prev=out.find(x=>((fid&&facilityId(x.osmId)===fid)||(nn&&normName(x.name)===nn&&hitsNear(x,h))));
+  if(prev){if(hitRank(h)>hitRank(prev)){prev.type=h.type;prev.id=h.id;if(h.osmId)prev.osmId=h.osmId;if(h.outers)prev.outers=h.outers;if(h.inners)prev.inners=h.inners;if(Number.isFinite(+h.lat)){prev.lat=+h.lat;prev.lon=+h.lon}prev.localOnly=!!h.localOnly&&!!prev.localOnly}
+   if(!prev.city&&h.city)prev.city=h.city;if((h.score||0)>(prev.score||0))prev.score=h.score;if(h.savedAs)prev.savedAs=h.savedAs;continue}
+  out.push(h)}
+ for(const h of out){const saved=savedForHit(h);if(saved){h.savedAs=saved;if(courses[saved]&&courses[saved].osmId)h.localOnly=false}}
+ return out}
+function dedupeLayouts(groups){const out=[];
+ for(const g of groups||[]){const nn=normName(g.name);const prev=out.find(x=>(g.key&&x.key===g.key)||(nn&&normName(x.name)===nn));
+  if(prev){const ids=new Set([...(prev.ids||[]).map(String),...(g.ids||[]).map(String)]);prev.ids=[...ids];if((g.count||0)>(prev.count||0)){prev.count=g.count;prev.nums=g.nums||prev.nums}continue}
+  out.push({...g,ids:[...(g.ids||[])]})}
+ return out}
+function layoutSavedName(hit,g){const id=facilityId(hit&&hit.osmId)+'#'+(g&&g.key||'');const want=normName(((hit&&hit.name)||'')+' '+((g&&g.name)||''));
+ for(const [name,c] of Object.entries(courses)){if(!c)continue;const cid=String(c.osmId||'');if(cid===id||cid===id+'#x2')return name;if(want&&normName(c.name||name)===want)return name}return ''}
+function savedQueryHits(q){const tokens=nameTokens(q),out=[];
+ for(const [name,c] of Object.entries(courses)){if(!c)continue;const label=c.name||name;if(scoreName(label+' '+(c.city||''),tokens)<=0&&scoreName(name,tokens)<=0)continue;
+  const g=c.greens&&Object.values(c.greens).find(x=>Array.isArray(x)&&x.length>=2&&Number.isFinite(+x[0]));
+  const osm=String(c.osmId||''),parts=osm.split('/');
+  out.push({name:label,city:c.city||'',lat:g?+g[0]:NaN,lon:g?+g[1]:NaN,osmId:osm,type:parts[0]||'saved',id:parts[1]||name,savedAs:name,localOnly:!osm,score:scoreName(label,tokens),outers:[],inners:[]})}
+ return out}
 function rankCourses(els,at,query){const tokens=nameTokens(query),seen=new Set(),hits=[];
  for(const el of els||[]){if(el.type!=='way'&&el.type!=='relation')continue;const key=el.type+'/'+el.id;if(seen.has(key))continue;seen.add(key);
   const tags=el.tags||{};const name=tags.name||tags['name:en']||'Golf course';let lat=el.center&&el.center.lat,lon=el.center&&el.center.lon;
@@ -224,10 +321,10 @@ function rankCourses(els,at,query){const tokens=nameTokens(query),seen=new Set()
   hits.push({name,type:el.type,id:+el.id,osmId:key,lat,lon,city:tags['addr:city']||tags['addr:town']||tags['addr:suburb']||'',km,score:scoreName(name,tokens),outers:rings.outers,inners:rings.inners})}
  const rels=hits.filter(h=>h.type==='relation');
  const kept=hits.filter(h=>h.type!=='way'||!rels.some(r=>r.name.toLowerCase()===h.name.toLowerCase()&&dist([h.lat,h.lon],[r.lat,r.lon])<800));
- kept.sort((a,b)=>b.score-a.score||((a.km??99)-(b.km??99)));return kept.slice(0,12)}
+ kept.sort((a,b)=>b.score-a.score||((a.km??99)-(b.km??99)));return dedupeHits(kept).slice(0,12)}
 function showCourseHits(hits){searchHits=hits;openCard();try{$('#csearchq').blur()}catch{}resultsLocked=true;
  if(!hits.length){$('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0"><small>'+tr('No mapped golf course for that search. Add a course and mark the greens, or get one from a friend.','Walang nahanap na course. I-add mo, o kunin sa kaibigan.')+'</small>'+cancelBtn()+'</div>';return}
- $('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0">'+hits.map((h,i)=>`<button type="button" class="b b2" data-ci="${i}" style="display:block;width:100%;margin:6px 0;min-height:56px;font-size:18px;text-align:left">${esc(h.name)}${h.city?' · '+esc(h.city):''}${h.km!=null?' · '+h.km.toFixed(1)+' km':''}</button>`).join('')+'<small>'+tr('Pick one to load holes, greens, tees, and hazards and save them on this phone.','Pili ka isa. Ilo-load ang holes, greens, tees, at hazards, tapos ise-save sa phone.')+'</small>'+cancelBtn()+'</div>'}
+ $('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0">'+hits.map((h,i)=>`<button type="button" class="b b2" data-ci="${i}" style="display:block;width:100%;margin:6px 0;min-height:56px;font-size:18px;text-align:left">${esc(h.name)}${h.city?' · '+esc(h.city):''}${h.km!=null?' · '+h.km.toFixed(1)+' km':''}${h.savedAs?' <span class="badge">'+esc(tr('Saved','Naka-save'))+'</span>':''}</button>`).join('')+'<small>'+tr('Pick one to load holes, greens, tees, and hazards and save them on this phone.','Pili ka isa. Ilo-load ang holes, greens, tees, at hazards, tapos ise-save sa phone.')+'</small>'+cancelBtn()+'</div>'}
 function nominatimHit(n){const tags=n.extratags||{},cat=n.class||n.category;const isGolf=tags.leisure==='golf_course'||n.type==='golf_course'||(cat==='leisure'&&n.type==='golf_course');if(!isGolf||(n.osm_type!=='way'&&n.osm_type!=='relation'))return null;
  const city=n.address&&(n.address.city||n.address.town||n.address.village)||'';return {name:n.name||'Golf course',type:n.osm_type,id:+n.osm_id,osmId:n.osm_type+'/'+n.osm_id,lat:+n.lat,lon:+n.lon,city,km:null,score:null,outers:[],inners:[]}}
 async function nominatimSearch(q,signal){const key='nom:'+q.toLowerCase();const cached=cacheGet(key);if(cached)return cached;
@@ -246,7 +343,7 @@ async function searchCourses(raw){const q=String(raw||'').trim();if(q.length<2)r
   if(stale(op.gen))return;
   let hits=rankCourses(els,[box.lat,box.lon],q);
   for(const n of places){const h=nominatimHit(n);if(!h||hits.some(x=>x.osmId===h.osmId))continue;h.km=dist([box.lat,box.lon],[h.lat,h.lon])/1000;h.score=scoreName(h.name,nameTokens(q));hits.push(h)}
-  hits=hits.filter(h=>h.type==='way'||h.type==='relation').sort((a,b)=>(b.score||0)-(a.score||0)||((a.km??99)-(b.km??99))).slice(0,12);
+  hits=dedupeHits(hits.concat(savedQueryHits(q))).filter(h=>h.localOnly||h.type==='way'||h.type==='relation').sort((a,b)=>(b.score||0)-(a.score||0)||((a.km??99)-(b.km??99))).slice(0,12);
   if(!hits.length){if(opErr){status(tr('Could not load the course list. ','Hindi ma-load ang listahan. ')+loadErr(opErr),{retry:true});return}
    showCourseHits([]);status(tr('No mapped golf course. You can mark it yourself or get one from a friend.','Walang mapped na course. I-mark mo, o kunin sa kaibigan.'));return}
   showCourseHits(hits);
@@ -297,7 +394,7 @@ function layoutLabel(facility,group,twice){const base=String(facility||'Course')
 function holeHas(c,h){const g=c&&c.greens&&(c.greens[h]||c.greens[String(h)]);const line=c&&c.holes&&(c.holes[h]||c.holes[String(h)]);return !!(Array.isArray(g)&&g.length>=2)||!!(line&&line.line&&line.line.length>=2)}
 function showLayoutPicker(hit,groups){openCard();try{$('#csearchq').blur()}catch{}resultsLocked=true;const nines=groups.filter(g=>g.count>=7&&g.count<=9);
  let html=`<div class="card" id="picker" style="margin-bottom:0"><b>${esc(hit.name)}</b><br><small>${tr('This club has more than one course. Pick one.','Maraming course dito. Pili ka isa.')}</small>`;
- groups.forEach((g,i)=>{html+=`<button type="button" class="b b2" data-ly="${i}" style="display:block;width:100%;margin:6px 0;min-height:56px;font-size:18px;text-align:left">${esc(g.name)} · ${g.count} ${tr('holes','holes')}</button>`;if(g.count>=7&&g.count<=9)html+=`<button type="button" class="b" data-twice="${i}" style="display:block;width:100%;margin:0 0 8px;min-height:52px;font-size:18px">${tr('Play 9 twice','9, dalawang beses')}</button>`});
+ groups.forEach((g,i)=>{const saved=layoutSavedName(hit,g);html+=`<button type="button" class="b b2" data-ly="${i}" style="display:block;width:100%;margin:6px 0;min-height:56px;font-size:18px;text-align:left">${esc(g.name)} · ${g.count} ${tr('holes','holes')}${saved?' <span class="badge">'+esc(tr('Saved','Naka-save'))+'</span>':''}</button>`;if(g.count>=7&&g.count<=9)html+=`<button type="button" class="b" data-twice="${i}" style="display:block;width:100%;margin:0 0 8px;min-height:52px;font-size:18px">${tr('Play 9 twice','9, dalawang beses')}</button>`});
  if(nines.length>=2){const opts=nines.map(g=>`<option value="${esc(g.key)}">${esc(g.name)} · ${g.count}</option>`).join('');html+=`<div class="row"><select id="nineA">${opts}</select><select id="nineB">${opts}</select></div><button type="button" class="b b2" id="pairnines" style="width:100%;font-size:18px">${tr('Play these two nines','Dalawang nine')}</button>`}
  html+=`<small>${tr('Play 9 twice fills holes 10–18 with the same nine. This list stays until you pick or cancel.','Ang Play 9 twice, inuulit ang nine sa holes 10–18. Mananatili ang listahan hanggang pumili ka o mag-cancel.')}</small>`+cancelBtn()+'</div>';
  $('#cresults').innerHTML=html}
@@ -329,7 +426,7 @@ async function loadCourse(hit,opts){const auto=!!(opts&&opts.auto);if(!hit)retur
   $('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0"><b>'+hx(hit.name)+'</b><div><span class="spin"></span>'+hx(tr('Loading course…','Lino-load ang course…'))+'</div>'+cancelBtn()+'</div>';
   openCard();try{$('#csearchq').blur()}catch{}status(tr('Loading course…','Lino-load ang course…'),{busy:true})}
  const token=++loadToken;loadingCourse=true;try{const outline=await fetchOutline(hit,signal);if(stale(gen)||(auto&&resultsLocked))return;const elements=await fetchGolf(padBox(outline.bbox,0.002),signal);if(stale(gen)||(auto&&resultsLocked))return;
-  const choices=(XLMap.layouts({elements,outers:outline.outers,inners:outline.inners})||[]).filter(g=>g&&g.name&&g.count>=1);
+  const choices=dedupeLayouts((XLMap.layouts({elements,outers:outline.outers,inners:outline.inners})||[]).filter(g=>g&&g.name&&g.count>=1));
   if(choices.length>1){pendingLoad={hit,outline,elements,groups:choices};if(auto)return;showLayoutPicker(hit,choices);
    say(tr(hit.name+'. '+choices.map(g=>g.name+' '+g.count).join(', ')+'. Pick one.',hit.name+'. '+choices.map(g=>g.name+' '+g.count).join(', ')+'. Pili ka isa.'));return}
   if(auto&&resultsLocked)return;await saveBuilt(hit,outline,elements,choices[0]||null,false)}
@@ -355,10 +452,12 @@ $('#csearchgo').onclick=()=>searchCourses($('#csearchq').value);
 $('#csearchq').addEventListener('keydown',e=>{if(e.key==='Enter')searchCourses($('#csearchq').value)});
 $('#findgps').onclick=()=>findNearby(false);
 let choiceAt=0,choiceBtn=null,touchPick=null,ignorePtrUntil=0,swallowClick=false;
+function useSaved(name){if(!courses[name])return;if(name!==cur&&totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return;
+ cur=name;round=newRound();hole=1;save();render();if(map)fitGreens();const nh=Object.keys((C().greens)||{}).length;const line=tr(name+' loaded, '+nh+' hole'+(nh===1?'':'s')+'.',name+' loaded, '+nh+' holes.');status(line);say(line)}
 function fireChoice(b){if(!b)return;if(b.id==='pcancel'){cancelPicker();return}
  if(b.dataset.ci==null&&b.dataset.ly==null&&b.dataset.twice==null&&b.id!=='pairnines')return;
  const now=Date.now();if(choiceBtn===b&&now-choiceAt<700)return;choiceAt=now;choiceBtn=b;$$('#cresults button.picked').forEach(x=>x.classList.remove('picked'));b.classList.add('picked');b.setAttribute('aria-busy','true');
- if(b.dataset.ci!=null)loadCourse(searchHits[+b.dataset.ci]);
+ if(b.dataset.ci!=null){const hit=searchHits[+b.dataset.ci];if(hit&&hit.localOnly&&hit.savedAs)return useSaved(hit.savedAs);loadCourse(hit)}
  else if(b.dataset.ly!=null)chooseLayout(+b.dataset.ly,false);
  else if(b.dataset.twice!=null)chooseLayout(+b.dataset.twice,true);
  else if(b.id==='pairnines')pairLayouts()}
@@ -504,7 +603,7 @@ function considerNearby(){
  for(const[name,c]of Object.entries(courses)){if(name===cur||nearSkip.has(name))continue;const d=nearestGreen(pos,c);if(d==null||d>2000||d>=bd)continue;if(mine!=null&&d>=mine)continue;best=name;bd=d}
  if(!best){el.style.display='none';nearName=null;return}
  nearName=best;el.style.display='block';
- $('#neartxt').textContent=tr(`You're near ${best}. Closest green is ${yds(bd)} ${unit()} away. Switch to it?`,`Malapit ka sa ${best}. ${yds(bd)} ${unit()} ang pinakamalapit na green. Lipat tayo?`);
+ $('#neartxt').textContent=tr(`You're near ${best}. Closest green is ${yds(bd)} ${unit()} away. Switch to it?`,`Malapit ka sa ${best}. ${yds(bd)} ${unitTl()} ang pinakamalapit na green. Lipat tayo?`);
  if(nearSaid!==best){nearSaid=best;say(tr(`You're near ${best}. Switch to it?`,`Malapit ka sa ${best}. Lipat tayo?`))}
 }
 $('#nearyes').onclick=()=>{
@@ -516,8 +615,9 @@ $('#nearno').onclick=()=>{if(nearName)nearSkip.add(nearName);considerNearby()};
 const myId=L('id',null)||(()=>{const i=Math.random().toString(36).slice(2,12);P('id',i);return i})();
 // Tournaments run over ntfy.sh (free, no login). Topic = xlooper-<code>. Events are JSON in the message body.
 // ntfy.sh keeps messages ~12h, so the leaderboard/chat is rebuilt from that window on every (re)connect.
-const NTFY='https://ntfy.sh/',topic=c=>'xlooper-'+c.toLowerCase();
-const pub=(code,ev)=>fetch(NTFY+topic(code),{method:'POST',body:JSON.stringify({...ev,id:myId,ts:Date.now()})}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
+const NTFY='https://ntfy.sh/';
+function topicFor(code,practice){return ((practice!=null?practice:!!(tour&&tour.practice))?'xlooper-practice-':'xlooper-')+String(code||'').toLowerCase()}
+const pub=(code,ev,as,practice)=>fetch(NTFY+topicFor(code,practice!=null?!!practice:!!(tour&&tour.practice)),{method:'POST',body:JSON.stringify({...ev,id:as||myId,ts:Date.now()})}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
 let es,seen=new Set();
 function apply(ev){if(!tstate)return;const n=String(ev.name||ev.from||'').slice(0,24);
  if(ev.t==='info'){tstate.name=String(ev.title||'xLooper Cup').slice(0,40);if(Array.isArray(ev.pars)&&!tstate.parsSet){tstate.pars=ev.pars.slice(0,18).map(Number);tstate.parsSet=1;if(tour&&!tour.pars){tour.pars=tstate.pars;C().pars=tstate.pars.slice();save();render()}}}
@@ -527,7 +627,7 @@ function apply(ev){if(!tstate)return;const n=String(ev.name||ev.from||'').slice(
 function connect(){if(!tour)return;$('#tjoin').style.display='none';$('#tin').style.display='block';$('#tcd').textContent=tour.code;es?.close();
  tstate={name:tour.title||'Tournament',pars:tour.pars||C().pars,players:{},parsSet:!!tour.pars};msgs=[];seen=new Set();let live=false;
  $('#ttitle').textContent=tstate.name;$('#tstat').textContent='Connecting…';
- es=new EventSource(NTFY+topic(tour.code)+'/sse?since=all');
+ es=new EventSource(NTFY+topicFor(tour.code,!!tour.practice)+'/sse?since=all');
  es.addEventListener('open',()=>{live=true;$('#tstat').textContent='Live ✓ (ntfy.sh · ~12h history)'});
  es.onmessage=e=>{let d,ev;try{d=JSON.parse(e.data);if(d.event!=='message'||seen.has(d.id))return;seen.add(d.id);ev=JSON.parse(d.message)}catch{return}
   const k=apply(ev);$('#ttitle').textContent=tstate.name;drawLB();drawMsgs();if(k==='msg'&&live&&opts.autoread&&ev.id!==myId&&Date.now()-(ev.ts||0)<6e4)readMsgs(false)};
@@ -542,16 +642,44 @@ function readMsgs(all){if(!tour)return say(tr('Join a tournament on the Tourney 
  say(tr((nw.length?`${nw.length} new message${nw.length>1?'s':''}. `:'Last messages. '),'')+(taglish()?(nw.length?`${nw.length} bagong message. `:'Huling messages. '):'')+body)}
 async function sendMsg(text,ann){if(!tour)return say(tr('Join a tournament first.','Sumali muna sa tournament.'));const r=await pub(tour.code,{t:'msg',from:tour.name,text:String(text).slice(0,280),ann:!!(ann||$('#mann').checked)}).catch(e=>({error:e.message||'offline'}));say(r.error?tr('Message failed: ','Hindi na-send: ')+r.error:tr('Sent.','Na-send na.'))}
 function voiceMsg(){listen(t=>sendMsg(t),tr('Say your message…','Sabihin ang message…'))}
-function postScore(h){if(!tour||round.course!==cur)return;pub(tour.code,{t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0}).catch(()=>{})}
-async function join(code,name,info){code=code.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');name=name.trim().slice(0,24);if(!code||!name)return say(tr('Enter your name and the code.','Ilagay ang pangalan at ang code.'));
- try{if(info)await pub(code,{t:'info',...info});await pub(code,{t:'join',name})}catch(e){return say(tr('Could not join: ','Hindi maka-join: ')+(e.message||'offline'))}
- tour={code,name,title:info?.title,pars:info?.pars};save();render();connect();for(let h=1;h<=18;h++)if(round.holes[h]?.s)postScore(h);say(tr(`Joined ${info?.title||'tournament '+code}. Good luck, ${name}.`,`Sumali ka sa ${info?.title||'tournament '+code}. Good luck, ${name}.`))}
-$('#tj').onclick=()=>join($('#tcode').value,$('#tname').value);
-$('#tc').onclick=()=>{const nm=$('#tname').value.trim();if(!nm)return say(tr('Enter your name first.','Ilagay muna ang pangalan mo.'));const a=crypto.getRandomValues(new Uint8Array(8)),cs='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',code=[...a].map(x=>cs[x%cs.length]).join('');join(code,nm,{title:($('#tnew').value||cur+' Cup').slice(0,40),pars:C().pars.slice()})};
+function canPost(){if(!tour||round.course!==cur)return false;if(tour.practice)return true;if(round.practice||opts.sim)return !!opts.countSim;return true}
+function postScore(h){if(!canPost())return;pub(tour.code,{t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0},myId,!!tour.practice).catch(()=>{})}
+function tourCode(){const a=crypto.getRandomValues(new Uint8Array(8)),cs='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return [...a].map(x=>cs[x%cs.length]).join('')}
+async function join(code,name,info,practice){code=String(code||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'');name=String(name||'').trim().slice(0,24);if(!code||!name)return say(tr('Enter your name and the code.','Ilagay ang pangalan at ang code.'));
+ const prac=!!practice;
+ try{if(info)await pub(code,{t:'info',practice:prac,...info},myId,prac);await pub(code,{t:'join',name},myId,prac)}catch(e){return say(tr('Could not join: ','Hindi maka-join: ')+(e.message||'offline'))}
+ if(L('botCode','')!==code){bots=[];P('bots',bots)}
+ P('botCode',code);
+ tour={code,name,title:info?.title,pars:info?.pars,practice:prac,host:!!info,invites:info?.invites||[]};save();render();connect();for(let h=1;h<=18;h++)if(round.holes[h]?.s)postScore(h);
+ say(tr(`Joined ${prac?'practice ':''}${info?.title||'tournament '+code}. Good luck, ${name}.`,`Sumali ka sa ${prac?'practice ':''}${info?.title||'tournament '+code}. Good luck, ${name}.`))}
+const BOT_NAMES=['Alex','Blair','Casey','Drew','Eden','Fran','Gray','Harper','Indy','Jules','Kai','Logan'];
+function simScore(par){const r=Math.random();const d=r<0.08?-1:r<0.42?0:r<0.78?1:r<0.93?2:3;return Math.max(1,(par||4)+d)}
+function inviteNames(){const names=Object.values((tstate&&tstate.players)||{}).map(p=>p.name).filter(Boolean);return [...new Set([...(tour&&tour.invites||[]),...names])]}
+function addBots(){if(!tour||!tour.practice||!tour.host)return say(tr('Create a practice tournament first.','Gumawa muna ng practice tournament.'));
+ const typed=$('#botnames')&&$('#botnames').value.trim();const custom=typed?typed.split(/[,|\n]/).map(s=>s.trim().slice(0,24)).filter(Boolean).slice(0,12):[];
+ const n=custom.length||Math.max(1,Math.min(12,+$('#botn').value||1));const used=new Set(bots.map(b=>b.name));const created=[];
+ for(let i=0;i<n;i++){const name=custom[i]||BOT_NAMES.find(x=>!used.has(x))||('Player '+(bots.length+1));used.add(name);const id='bot'+Math.random().toString(36).slice(2,10);const b={id,name,scores:{}};bots.push(b);created.push(b);
+  const ev={t:'join',name,id};if(tstate)apply(ev);pub(tour.code,ev,id,true).catch(()=>{})}
+ P('bots',bots);drawLB();if($('#botnames'))$('#botnames').value='';say(tr('Added '+created.map(b=>b.name).join(', ')+'.','Nadagdag sina '+created.map(b=>b.name).join(', ')+'.'))}
+function advanceBots(all){if(!tour||!tour.practice||!tour.host)return say(tr('Practice controls are for the host.','Sa host ang practice controls.'));if(!bots.length)return say(tr('Add simulated players first. Real players can still join.','Magdagdag muna ng simulated players. Pwede pa ring sumali ang totoong players.'));
+ const pars=(tstate&&tstate.pars)||C().pars;const step=()=>{let moved=false;for(const b of bots){const played=Object.keys(b.scores).map(Number);const next=(played.length?Math.max(...played):0)+1;if(next>18)continue;const s=simScore(pars[next-1]||4);b.scores[next]=s;const ev={t:'score',name:b.name,hole:next,strokes:s,id:b.id};if(tstate)apply(ev);pub(tour.code,ev,b.id,true).catch(()=>{});moved=true}return moved};
+ if(all){let g=0;while(step()&&g++<18){}}else step();P('bots',bots);drawLB();say(tr(all?'Simulated players finished the round.':'Simulated players advanced one hole.',all?'Tapos na ang simulated players.':'Isang hole ang simulated players.'))}
+async function promoteTour(){if(!tour||!tour.host||!tour.practice)return;const invites=inviteNames();const title=tour.title||(tstate&&tstate.name)||'Tournament';const pars=(tour.pars||C().pars).slice();
+ tour.practice=false;tour.title=title;tour.pars=pars;tour.invites=invites;save();
+ try{await pub(tour.code,{t:'info',title,pars,practice:false},myId,false);await pub(tour.code,{t:'join',name:tour.name},myId,false);await pub(tour.code,{t:'msg',from:tour.name,text:'Promoted to a real tournament. Practice scores stayed on the practice board.'+(invites.length?' Invited: '+invites.join(', '):''),ann:true},myId,false)}
+ catch(e){tour.practice=true;save();return say(tr('Could not promote: ','Hindi ma-promote: ')+(e.message||'offline'))}
+ connect();render();say(tr('Promoted to a real tournament. Same code. Practice scores stayed on the practice board.','Real tournament na. Parehong code. Nasa practice board ang practice scores.'))}
+async function freshReal(){if(!tour||!tour.host)return;const invites=inviteNames();const title=tour.title||(tstate&&tstate.name)||(cur+' Cup');const pars=(tour.pars||C().pars).slice();const nm=tour.name;const code=tourCode();
+ await join(code,nm,{title,pars,invites},false);
+ try{if(invites.length)await pub(code,{t:'msg',from:nm,text:'You are invited: '+invites.join(', '),ann:true},myId,false)}catch{}}
+$('#tj').onclick=()=>join($('#tcode').value,$('#tname').value,null,!!($('#tpractice')&&$('#tpractice').checked));
+$('#tc').onclick=()=>{const nm=$('#tname').value.trim();if(!nm)return say(tr('Enter your name first.','Ilagay muna ang pangalan mo.'));join(tourCode(),nm,{title:($('#tnew').value||cur+' Cup').slice(0,40),pars:C().pars.slice()},!!($('#tmakePractice')&&$('#tmakePractice').checked))};
+$('#addbots').onclick=addBots;$('#adv1').onclick=()=>advanceBots(false);$('#playall').onclick=()=>advanceBots(true);$('#promote').onclick=()=>promoteTour();$('#freshreal').onclick=()=>freshReal();
 $('#msend').onclick=()=>{const t=$('#mtxt').value.trim();if(t){sendMsg(t);$('#mtxt').value=''}};$('#mread').onclick=()=>readMsgs(true);$('#mvoice').onclick=voiceMsg;
-$('#leave').onclick=()=>{tour=null;es?.close();save();$('#tjoin').style.display='block';$('#tin').style.display='none'};
-$('#share').onclick=()=>{const u=location.origin+location.pathname+'?t='+tour.code;navigator.share?navigator.share({title:'Join my xLooper tournament',text:'Tournament code '+tour.code,url:u}).catch(()=>{}):(navigator.clipboard.writeText(u),say(tr('Link copied.','Na-copy ang link.')))};
-const qt=new URLSearchParams(location.search).get('t');if(qt){$('#tcode').value=qt;if(!tour||tour.code!==qt.toUpperCase()){$$('nav button')[3].click();$('#tname').focus()}}
+$('#leave').onclick=()=>{tour=null;es?.close();save();$('#tjoin').style.display='block';$('#tin').style.display='none';const pb=$('#pracbox');if(pb)pb.style.display='none';const flag=$('#tpracflag');if(flag)flag.hidden=true};
+$('#share').onclick=()=>{if(!tour)return;const u=location.origin+location.pathname+'?t='+tour.code+(tour.practice?'&p=1':'');navigator.share?navigator.share({title:tour.practice?'Join my xLooper practice tournament':'Join my xLooper tournament',text:(tour.practice?'Practice tournament code ':'Tournament code ')+tour.code,url:u}).catch(()=>{}):(navigator.clipboard.writeText(u),say(tr('Link copied.','Na-copy ang link.')))};
+const qparams=new URLSearchParams(location.search);const qt=qparams.get('t');if(qparams.get('p')==='1'){const box=$('#tpractice');if(box)box.checked=true}
+if(qt){$('#tcode').value=qt;if(!tour||tour.code!==qt.toUpperCase()){$$('nav button')[3].click();$('#tname').focus()}}
 const qCourse=new URLSearchParams(location.search).get('course');if(qCourse)previewCourse(location.search+location.hash);
 $('#tname').value=tour?.name||L('pname','');$('#tname').onchange=e=>P('pname',e.target.value);
 // ---------- xircle signup ----------
@@ -601,6 +729,7 @@ $('#xi-set').onclick=()=>{if(xstate.signup&&!xstate.signup.sent)return retryXirc
 $('#xi-join').onclick=()=>submitXircle();
 $('#xi-later').onclick=()=>dismissXircle();
 $('#xircle').onclick=e=>{if(e.target.id==='xircle')dismissXircle()};
+if(opts.sim){const t=teePoint(hole,true);if(t){pos=[t[0],t[1]];acc=3}}
 render();connect();
 maybeXircle();
 function showUpdate(){const el=$('#upd');if(!el)return;el.hidden=false;el.onclick=()=>location.reload()}
