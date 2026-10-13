@@ -1,6 +1,6 @@
 # xLooper
 
-Voice golf caddy PWA: GPS yardages, club suggestions, voice scoring, scorecard, live tournaments, course search, and course sharing.
+Voice golf caddy PWA: GPS yardages, club suggestions, voice scoring, scorecard, live tournaments, course search, and course sharing. Language is English or Taglish (header). Taglish speaks with a fil-PH voice when the phone has one.
 
 - Live: https://aaabad.github.io/xLooper/
 - Static app lives in `public/` and is deployed to GitHub Pages by `.github/workflows/pages.yml`.

@@ -26,48 +26,48 @@ small{color:#9bb}
 #xircle .card{max-width:440px;margin:12px auto}#xircle label{display:flex;gap:10px;align-items:flex-start;font-size:16px;line-height:1.35}
 #xircle label input{width:auto;flex:0 0 auto;margin-top:3px}#xi-err{color:#ffd23f;min-height:1.2em}
 </style></head><body>
-<header><div class="logo"><b>x</b>Looper</div><div id="gps" style="font-size:15px">GPS…</div></header>
-<div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes">Switch</button><button class="b b2" id="nearno">Not now</button></div></div>
+<header><div class="logo"><b>x</b>Looper</div><div style="display:flex;gap:8px;align-items:center"><select id="lang" aria-label="Language" style="width:auto;font-size:15px;padding:6px 8px"><option value="en">English</option><option value="tl">Taglish</option></select><div id="gps" style="font-size:15px">GPS…</div></div></header>
+<div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes" data-en="Switch" data-tl="Lipat">Switch</button><button class="b b2" id="nearno" data-en="Not now" data-tl="Huwag muna">Not now</button></div></div>
 <section id="s-caddy" class="on">
- <div class="row"><button class="b b2" id="prev">◀</button><div style="text-align:center;flex:2"><div style="font-size:30px;font-weight:800">Hole <span id="hn">1</span></div><small>Par <span id="hp">4</span> · <span id="cname"></span></small></div><button class="b b2" id="next">▶</button></div>
+ <div class="row"><button class="b b2" id="prev">◀</button><div style="text-align:center;flex:2"><div style="font-size:30px;font-weight:800"><span data-en="Hole" data-tl="Hole">Hole</span> <span id="hn">1</span></div><small><span data-en="Par" data-tl="Par">Par</span> <span id="hp">4</span> · <span id="cname"></span></small></div><button class="b b2" id="next">▶</button></div>
  <div class="row" style="align-items:flex-end;text-align:center;margin-top:0">
-  <div><div style="font-size:42px;font-weight:900;line-height:1" id="ydF">—</div><div class="sub">front</div></div>
-  <div style="flex:1.4"><div class="big" id="yd">—</div><div class="sub">center <span id="fb"></span></div></div>
-  <div><div style="font-size:42px;font-weight:900;line-height:1" id="ydB">—</div><div class="sub">back</div></div>
+  <div><div style="font-size:42px;font-weight:900;line-height:1" id="ydF">—</div><div class="sub" data-en="front" data-tl="harap">front</div></div>
+  <div style="flex:1.4"><div class="big" id="yd">—</div><div class="sub"><span data-en="center" data-tl="gitna">center</span> <span id="fb"></span></div></div>
+  <div><div style="font-size:42px;font-weight:900;line-height:1" id="ydB">—</div><div class="sub" data-en="back" data-tl="likod">back</div></div>
  </div>
  <div class="sub" style="font-size:28px;margin:8px;color:#9be564" id="club">&nbsp;</div>
  <div id="log"></div>
- <div class="row"><button class="b mic" id="mic">🎤 Talk to xLooper</button></div>
- <div class="row"><button class="b" id="bYd">Yardage</button><button class="b" id="bClub">What club</button></div>
- <div class="row"><button class="b b2" id="bShot">Mark shot</button><button class="b b2" id="bScoreQ">My score</button></div>
- <div class="card"><div class="row" style="align-items:center"><span>Strokes</span><button class="b b2" data-d="-1" data-k="s">−</button><span class="big" style="font-size:44px" id="st">0</span><button class="b b2" data-d="1" data-k="s">+</button></div>
- <div class="row" style="align-items:center"><span>Putts</span><button class="b b2" data-d="-1" data-k="p">−</button><span class="big" style="font-size:44px" id="pt">0</span><button class="b b2" data-d="1" data-k="p">+</button></div>
+ <div class="row"><button class="b mic" id="mic" data-en="🎤 Talk to xLooper" data-tl="🎤 Kausapin si xLooper">🎤 Talk to xLooper</button></div>
+ <div class="row"><button class="b" id="bYd" data-en="Yardage" data-tl="Gaano kalayo">Yardage</button><button class="b" id="bClub" data-en="What club" data-tl="Anong club">What club</button></div>
+ <div class="row"><button class="b b2" id="bShot" data-en="Mark shot" data-tl="Mark tira">Mark shot</button><button class="b b2" id="bScoreQ" data-en="My score" data-tl="Score ko">My score</button></div>
+ <div class="card"><div class="row" style="align-items:center"><span data-en="Strokes" data-tl="Palo">Strokes</span><button class="b b2" data-d="-1" data-k="s">−</button><span class="big" style="font-size:44px" id="st">0</span><button class="b b2" data-d="1" data-k="s">+</button></div>
+ <div class="row" style="align-items:center"><span data-en="Putts" data-tl="Putts">Putts</span><button class="b b2" data-d="-1" data-k="p">−</button><span class="big" style="font-size:44px" id="pt">0</span><button class="b b2" data-d="1" data-k="p">+</button></div>
  <div id="lastshot" class="sub"></div></div>
- <div class="row"><button class="b b2" id="gosearch" style="font-size:18px">Search course</button><button class="b b2" id="findgps" style="font-size:18px">Find my course</button></div>
- <div class="row"><button class="b b2" id="bMsgs">📢 Read messages</button><button class="b b2" id="bSay">🎙 Send msg</button></div>
+ <div class="row"><button class="b b2" id="gosearch" style="font-size:18px" data-en="Search course" data-tl="Hanap course">Search course</button><button class="b b2" id="findgps" style="font-size:18px" data-en="Find my course" data-tl="Course ko (GPS)">Find my course</button></div>
+ <div class="row"><button class="b b2" id="bMsgs" data-en="📢 Read messages" data-tl="📢 Basahin ang messages">📢 Read messages</button><button class="b b2" id="bSay" data-en="🎙 Send msg" data-tl="🎙 Mag-message">🎙 Send msg</button></div>
 </section>
 <section id="s-map"><div id="map"></div>
  <div id="fixholes" class="card" style="display:none"></div>
- <div class="row"><button class="b" id="mkGreen">📍 Mark green (I'm on it)</button></div>
- <div class="row"><button class="b b2" id="osm">Load OSM greens</button><button class="b b2" id="center">Center me</button></div>
- <small>Search sets the course up from home. Tap the photo to mark a hole that is still missing a green (Hole <span id="mh">1</span>).</small>
+ <div class="row"><button class="b" id="mkGreen" data-en="📍 Mark green (I'm on it)" data-tl="📍 Mark green (nandito ako)">📍 Mark green (I'm on it)</button></div>
+ <div class="row"><button class="b b2" id="osm" data-en="Load OSM greens" data-tl="Kunin ang greens">Load OSM greens</button><button class="b b2" id="center" data-en="Center me" data-tl="Dito ako">Center me</button></div>
+ <small id="maphint">Search sets the course up from home. Tap the photo to mark a hole that is still missing a green (Hole <span id="mh">1</span>).</small>
 </section>
-<section id="s-card"><div class="card"><b>Search course</b>
- <div class="row"><input id="csearchq" placeholder="Name, town, or ZIP"><button class="b" id="csearchgo" style="flex:0 0 110px;font-size:18px">Search</button></div>
+<section id="s-card"><div class="card"><b data-en="Search course" data-tl="Hanap course">Search course</b>
+ <div class="row"><input id="csearchq" placeholder="Name, town, or ZIP" data-en="Name, town, or ZIP" data-tl="Pangalan, bayan, o ZIP"><button class="b" id="csearchgo" style="flex:0 0 110px;font-size:18px" data-en="Search" data-tl="Hanap">Search</button></div>
  <div id="cresults"></div>
- <small>Works from home. No GPS needed. Find my course, on the caddy, is for when you are standing on the course.</small>
-</div><div class="card"><select id="course"></select><div class="row"><input id="newc" placeholder="New course name"><button class="b b2" id="addc" style="flex:0 0 90px">Add</button></div>
- <div class="row"><button class="b b2" id="sharec" style="font-size:17px">Share course</button><button class="b b2" id="getc" style="font-size:17px">Get course from a friend</button></div>
+ <small id="searchhint">Works from home. No GPS needed. Find my course, on the caddy, is for when you are standing on the course.</small>
+</div><div class="card"><select id="course"></select><div class="row"><input id="newc" placeholder="New course name" data-en="New course name" data-tl="Pangalan ng course"><button class="b b2" id="addc" style="flex:0 0 90px" data-en="Add" data-tl="Dagdag">Add</button></div>
+ <div class="row"><button class="b b2" id="sharec" style="font-size:17px" data-en="Share course" data-tl="I-share ang course">Share course</button><button class="b b2" id="getc" style="font-size:17px" data-en="Get course from a friend" data-tl="Kunin sa kaibigan">Get course from a friend</button></div>
  <div id="sharebox"></div>
  <div id="getbox" style="display:none"><div class="row"><input id="coursein" placeholder="Paste code or link"><button class="b" id="coursego" style="flex:0 0 120px;font-size:18px">Preview</button></div><div id="cprev"></div></div></div>
  <div id="tot" class="sub" style="font-size:24px;margin:8px"></div>
  <table id="sc"></table>
- <div class="row"><button class="b" id="fin">Finish & save round</button><button class="b red" id="newr">New round</button></div>
- <h3>History</h3><div id="hist"></div></section>
-<section id="s-clubs"><h3>My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub">+ Club</button><button class="b b2" id="resetc">Reset</button></div>
- <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> Auto-read new tournament messages</label><br><label><input type="checkbox" id="metric" style="width:auto"> Distances in meters</label></div>
+ <div class="row"><button class="b" id="fin" data-en="Finish &amp; save round" data-tl="Tapusin at i-save">Finish &amp; save round</button><button class="b red" id="newr" data-en="New round" data-tl="Bagong round">New round</button></div>
+ <h3 data-en="History" data-tl="History">History</h3><div id="hist"></div></section>
+<section id="s-clubs"><h3 id="clubhead" data-en="My distances (carry, yds)" data-tl="Mga distansya ko (carry, yds)">My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub" data-en="+ Club" data-tl="+ Club">+ Club</button><button class="b b2" id="resetc" data-en="Reset" data-tl="Reset">Reset</button></div>
+ <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> <span id="lblAuto" data-en="Auto-read new tournament messages" data-tl="Auto-basahin ang bagong tournament messages">Auto-read new tournament messages</span></label><br><label><input type="checkbox" id="metric" style="width:auto"> <span id="lblMetric" data-en="Distances in meters" data-tl="Distansya sa metro">Distances in meters</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.6 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.7 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)"><div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
  <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div><small>Create uses the current course pars.</small></div>
@@ -77,7 +77,7 @@ small{color:#9bb}
  <div class="row"><input id="mtxt" placeholder="Message"><button class="b" id="msend" style="flex:0 0 80px">Send</button></div>
  <div class="row"><button class="b b2" id="mread">🔊 Read messages</button><button class="b b2" id="mvoice">🎙 Speak msg</button><label style="flex:0 0 auto;font-size:16px"><input type="checkbox" id="mann" style="width:auto">📢</label></div></div>
 </section>
-<nav><button data-s="caddy" class="on">Caddy</button><button data-s="map">Map</button><button data-s="card">Card</button><button data-s="tour">Tourney</button><button data-s="clubs">Clubs</button></nav>
+<nav><button data-s="caddy" class="on" data-en="Caddy" data-tl="Caddy">Caddy</button><button data-s="map" data-en="Map" data-tl="Map">Map</button><button data-s="card" data-en="Card" data-tl="Card">Card</button><button data-s="tour" data-en="Tourney" data-tl="Tourney">Tourney</button><button data-s="clubs" data-en="Clubs" data-tl="Clubs">Clubs</button></nav>
 <div id="xircle" style="display:none"><div class="card">
  <h3 style="margin-top:0">Join xircle</h3>
  <p style="margin:0 0 8px">Optional. xLooper keeps working either way.</p>
