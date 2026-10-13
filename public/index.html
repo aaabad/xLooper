@@ -5,17 +5,28 @@
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#06210f;color:#fff;font-size:20px}
-header{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;background:#0b3d1e}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#06210f;color:#fff;font-size:20px;display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+header{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;background:#0b3d1e;flex:none}
+#screens{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
 .logo{font-size:28px;font-weight:800}.logo b{color:#9be564}
-nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#0b3d1e;padding-bottom:env(safe-area-inset-bottom);z-index:1000}
+nav{display:flex;flex:none;background:#0b3d1e;padding-bottom:env(safe-area-inset-bottom);z-index:1000}
 nav button{flex:1;background:none;border:0;color:#cfe;font-size:16px;padding:14px 2px;font-weight:700}nav button.on{color:#9be564;border-top:3px solid #9be564}
-section{display:none;padding:12px 12px 100px}section.on{display:block}
+section{display:none;padding:12px 12px 28px}section.on{display:block}
+button,a,select,label{touch-action:manipulation;-webkit-tap-highlight-color:rgba(255,210,63,.55)}
+button.pressed,button.b:active,button.picked{filter:brightness(1.45);outline:3px solid #ffd23f;outline-offset:-3px}
+#toast{position:fixed;left:10px;right:10px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:1400;background:#ffd23f;color:#06210f;border-radius:14px;padding:12px 14px;font-weight:800;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:none}
+#toast[hidden]{display:none}
+#upd{position:fixed;left:0;right:0;top:0;z-index:3000;background:#ffd23f;color:#06210f;text-align:center;font-weight:800;padding:calc(env(safe-area-inset-top) + 12px) 12px 12px}
+#upd[hidden]{display:none}
+#cstatus{color:#ffd23f;font-weight:700;margin:8px 0}
+#cstatus[hidden]{display:none}
+.spin{display:inline-block;width:16px;height:16px;border:3px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:8px;vertical-align:-2px;animation:xlspin .7s linear infinite}
+@keyframes xlspin{to{transform:rotate(360deg)}}
 .big{font-size:84px;font-weight:900;text-align:center;line-height:1}.sub{text-align:center;color:#bdc;font-size:20px}
-.row{display:flex;gap:10px;margin:10px 0}.row>*{flex:1}
+.row{display:flex;gap:10px;margin:10px 0}.row>*{flex:1;min-width:0}
 button.b{background:#9be564;color:#06210f;border:0;border-radius:16px;font-size:22px;font-weight:800;padding:18px 8px;min-height:66px}
 button.b2{background:#1d5c33;color:#fff}button.mic{background:#ffd23f;font-size:26px}button.red{background:#e55}
-#map{height:62vh;border-radius:12px}input,select{font-size:20px;padding:10px;border-radius:10px;border:0;width:100%}
+#map{height:62vh;border-radius:12px}input,select{font-size:20px;padding:10px;border-radius:10px;border:0;width:100%}.row input,.row select{width:auto;min-width:0}
 table{width:100%;border-collapse:collapse;font-size:18px}td,th{padding:7px 4px;text-align:center;border-bottom:1px solid #1d5c33}
 td input{width:52px;padding:6px;text-align:center}.cur{background:#1d5c33}
 .card{background:#0b3d1e;border-radius:14px;padding:12px;margin:10px 0}#log{color:#ffd23f;min-height:28px;text-align:center}
@@ -26,7 +37,10 @@ small{color:#9bb}
 #xircle .card{max-width:440px;margin:12px auto}#xircle label{display:flex;gap:10px;align-items:flex-start;font-size:16px;line-height:1.35}
 #xircle label input{width:auto;flex:0 0 auto;margin-top:3px}#xi-err{color:#ffd23f;min-height:1.2em}
 </style></head><body>
+<button type="button" id="upd" hidden>New version, tap to refresh</button>
+<div id="toast" hidden></div>
 <header><div class="logo"><b>x</b>Looper</div><div style="display:flex;gap:8px;align-items:center"><select id="lang" aria-label="Language" style="width:auto;font-size:15px;padding:6px 8px"><option value="en">English</option><option value="tl">Taglish</option></select><div id="gps" style="font-size:15px">GPS…</div></div></header>
+<div id="screens">
 <div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes" data-en="Switch" data-tl="Lipat">Switch</button><button class="b b2" id="nearno" data-en="Not now" data-tl="Huwag muna">Not now</button></div></div>
 <section id="s-caddy" class="on">
  <div class="row"><button class="b b2" id="prev">◀</button><div style="text-align:center;flex:2"><div style="font-size:30px;font-weight:800"><span data-en="Hole" data-tl="Hole">Hole</span> <span id="hn">1</span></div><small><span data-en="Par" data-tl="Par">Par</span> <span id="hp">4</span> · <span id="cname"></span></small></div><button class="b b2" id="next">▶</button></div>
@@ -54,6 +68,7 @@ small{color:#9bb}
 </section>
 <section id="s-card"><div class="card"><b data-en="Search course" data-tl="Hanap course">Search course</b>
  <div class="row"><input id="csearchq" placeholder="Name, town, or ZIP" data-en="Name, town, or ZIP" data-tl="Pangalan, bayan, o ZIP"><button class="b" id="csearchgo" style="flex:0 0 110px;font-size:18px" data-en="Search" data-tl="Hanap">Search</button></div>
+ <div id="cstatus" hidden role="status" aria-live="polite"></div>
  <div id="cresults"></div>
  <small id="searchhint">Works from home. No GPS needed. Find my course, on the caddy, is for when you are standing on the course.</small>
 </div><div class="card"><select id="course"></select><div class="row"><input id="newc" placeholder="New course name" data-en="New course name" data-tl="Pangalan ng course"><button class="b b2" id="addc" style="flex:0 0 90px" data-en="Add" data-tl="Dagdag">Add</button></div>
@@ -68,7 +83,7 @@ small{color:#9bb}
 <section id="s-clubs"><h3 id="clubhead" data-en="My distances (carry, yds)" data-tl="Mga distansya ko (carry, yds)">My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub" data-en="+ Club" data-tl="+ Club">+ Club</button><button class="b b2" id="resetc" data-en="Reset" data-tl="Reset">Reset</button></div>
  <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> <span id="lblAuto" data-en="Auto-read new tournament messages" data-tl="Auto-basahin ang bagong tournament messages">Auto-read new tournament messages</span></label><br><label><input type="checkbox" id="metric" style="width:auto"> <span id="lblMetric" data-en="Distances in meters" data-tl="Distansya sa metro">Distances in meters</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.8 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.9 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)"><div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
  <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div><small>Create uses the current course pars.</small></div>
@@ -78,6 +93,7 @@ small{color:#9bb}
  <div class="row"><input id="mtxt" placeholder="Message"><button class="b" id="msend" style="flex:0 0 80px">Send</button></div>
  <div class="row"><button class="b b2" id="mread">🔊 Read messages</button><button class="b b2" id="mvoice">🎙 Speak msg</button><label style="flex:0 0 auto;font-size:16px"><input type="checkbox" id="mann" style="width:auto">📢</label></div></div>
 </section>
+</div>
 <nav><button data-s="caddy" class="on" data-en="Caddy" data-tl="Caddy">Caddy</button><button data-s="map" data-en="Map" data-tl="Map">Map</button><button data-s="card" data-en="Card" data-tl="Card">Card</button><button data-s="tour" data-en="Tourney" data-tl="Tourney">Tourney</button><button data-s="clubs" data-en="Clubs" data-tl="Clubs">Clubs</button></nav>
 <div id="xircle" style="display:none"><div class="card">
  <h3 style="margin-top:0">Join xircle</h3>

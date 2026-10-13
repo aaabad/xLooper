@@ -1,4 +1,4 @@
-// xLooper v0.8 – voice golf caddy PWA
+// xLooper v0.9 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -10,6 +10,8 @@ if(!opts||typeof opts!=='object')opts={autoread:true,metric:false,lang:'en'};
 if(opts.lang!=='tl')opts.lang='en';
 let pos=null, acc=null, shot=L('shot',null), lastHeard=L('heard',0), msgs=[], tstate=null;
 let searchHits=[], loadingCourse=false, autoTried=false, missSig='';
+let opGen=0, inflight=null, autoCtl=null, resultsLocked=false, loadToken=0;
+const memCache=new Map();
 let xstate=L('xircle',{opens:0,asks:0,at:0,signup:null});
 if(!xstate||typeof xstate!=='object'||Array.isArray(xstate))xstate={opens:0,asks:0,at:0,signup:null};
 xstate.opens=(+xstate.opens||0)+1;P('xircle',xstate);
@@ -25,7 +27,12 @@ function pickVoice(){const v=('speechSynthesis'in window)?speechSynthesis.getVoi
  if(taglish())voice=v.find(x=>/^fil|^tl/i.test(x.lang))||v.find(x=>/en-US/.test(x.lang)&&/Samantha|Google US|Aaron|Daniel/.test(x.name))||v.find(x=>/^en/i.test(x.lang))||null;
  else voice=v.find(x=>/en-US/.test(x.lang)&&/Samantha|Google US|Aaron|Daniel/.test(x.name))||v.find(x=>/^en/i.test(x.lang))||null}
 if('speechSynthesis'in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
-function say(t){$('#log').textContent=t;if(!('speechSynthesis'in window)||typeof speechSynthesis.speak!=='function')return;
+function paint(t){const s=t==null?'':String(t);const log=$('#log');if(log)log.textContent=s;const st=$('#cstatus');if(st){st.hidden=false;st.textContent=s}const toast=$('#toast');const onCaddy=$('#s-caddy')&&$('#s-caddy').classList.contains('on');const onCard=$('#s-card')&&$('#s-card').classList.contains('on');if(toast){toast.classList.remove('busy');if(onCaddy||onCard)toast.hidden=true;else{toast.hidden=false;toast.textContent=s}}}
+function loadErr(e){const m=String(e&&(e.message||e.name)||'');if(/timeout|aborted|504|429|busy/i.test(m)||(e&&/Timeout|Abort/i.test(e.name||'')))return tr('The map service timed out.','Na-timeout ang map service.');if(/failed to fetch|network|offline/i.test(m))return tr('No network.','Walang network.');return m||tr('Something went wrong.','May problema.')}
+let retryFn=null;
+function hx(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function status(t,opt){opt=opt||{};paint(t);const st=$('#cstatus');if(st){st.hidden=false;st.innerHTML=(opt.busy?'<span class="spin"></span>':'')+hx(t)+(opt.retry?'<div><button type="button" class="b" id="cretry" style="min-height:52px;font-size:18px;margin-top:8px">'+hx(tr('Retry','Ulit'))+'</button></div>':'');const b=$('#cretry');if(b)b.onclick=()=>{if(retryFn)retryFn()}}const toast=$('#toast');if(toast&&!toast.hidden){toast.classList.toggle('busy',!!opt.busy);if(opt.busy)toast.innerHTML='<span class="spin"></span>'+hx(t)}}
+function say(t){status(t);if(!('speechSynthesis'in window)||typeof speechSynthesis.speak!=='function')return;
  try{speechSynthesis.cancel()}catch{}
  const u=new SpeechSynthesisUtterance(t);try{if(voice)u.voice=voice}catch{}
  const fil=voice&&/^fil|^tl/i.test(voice.lang);
@@ -33,9 +40,9 @@ function say(t){$('#log').textContent=t;if(!('speechSynthesis'in window)||typeof
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 function listen(cb,prompt){if(!SR){say(tr("Voice input isn't supported in this browser. Use the buttons, or your keyboard's dictation mic.","Walang voice input sa browser na ito. Gamitin ang buttons."));return}
  const langs=taglish()?['fil-PH','en-US']:['en-US'];
- const start=i=>{const r=new SR();r.lang=langs[Math.min(i,langs.length-1)];r.interimResults=false;r.maxAlternatives=3;$('#log').textContent=prompt||tr('Listening…','Nakikinig…');
+ const start=i=>{const r=new SR();r.lang=langs[Math.min(i,langs.length-1)];r.interimResults=false;r.maxAlternatives=3;paint(prompt||tr('Listening…','Nakikinig…'));
   r.onresult=e=>{const said=(e.results&&e.results[0]&&e.results[0][0]&&e.results[0][0].transcript)||'';if(String(said).trim())cb(said);else if(i+1<langs.length)start(i+1)};
-  r.onerror=e=>{const err=e&&e.error||'';if(i+1<langs.length&&/language-not-supported|no-speech|audio-capture|network|service-not-allowed/.test(err))start(i+1);else $('#log').textContent='Mic: '+err};
+  r.onerror=e=>{const err=e&&e.error||'';if(i+1<langs.length&&/language-not-supported|no-speech|audio-capture|network|service-not-allowed/.test(err))start(i+1);else paint('Mic: '+err)};
   try{speechSynthesis.cancel()}catch{}
   try{r.start()}catch(err){if(i+1<langs.length)start(i+1);else $('#log').textContent='Mic: '+(err&&err.message||'error')}};
  start(0)}
@@ -150,7 +157,7 @@ function markGreenHere(){if(!pos)return sayWait();C().greens[hole]=[r6(pos[0]),r
 $('#mkGreen').onclick=markGreenHere;$('#center').onclick=()=>pos&&map.setView(pos,18);
 $('#osm').onclick=async()=>{const c=map.getCenter();say(tr('Looking for greens nearby.','Hahanapin ang mga green dito.'));
  const q=`[out:json][timeout:25];(way["golf"="green"](around:2500,${c.lat},${c.lng});node["golf"="hole"](around:2500,${c.lat},${c.lng});way["golf"="hole"](around:2500,${c.lat},${c.lng}););out geom tags;`;
- try{const r=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:'data='+encodeURIComponent(q)}).then(r=>r.json());osmLayer.clearLayers();
+ try{const r=await overpass(q);osmLayer.clearLayers();
   const greens=r.elements.filter(e=>e.tags?.golf==='green'&&e.geometry),holes=r.elements.filter(e=>e.tags?.golf==='hole'&&e.geometry);let auto=0;
   for(const g of greens){const pts=g.geometry.map(p=>[p.lat,p.lon]),cen=[pts.reduce((a,p)=>a+p[0],0)/pts.length,pts.reduce((a,p)=>a+p[1],0)/pts.length];
    // auto-assign if an OSM hole line ends on this green
@@ -158,7 +165,7 @@ $('#osm').onclick=async()=>{const c=map.getCenter();say(tr('Looking for greens n
    LL.polygon(pts,{color:'#ffd23f',weight:2}).addTo(osmLayer).on('click',ev=>{LL.DomEvent.stop(ev);C().greens[hole]=cen.map(r6);rememberShape(hole,pts);save();render();say(tr(`Green set for hole ${hole}.`,`Naka-set na ang green sa hole ${hole}.`))})}
   save();render();say(tr(`Found ${greens.length} greens${auto?`, auto-assigned ${auto} by hole number`:''}. Tap a yellow green to assign it to hole ${hole}.`,`May ${greens.length} green${auto?`, ${auto} ang automatic sa hole number`:''}. I-tap ang yellow green para sa hole ${hole}.`))}catch(e){say(tr('Could not reach OpenStreetMap.','Hindi maabot ang OpenStreetMap.'))}};
 // ---------- course search (home setup; GPS find is the backup) ----------
-function maybeAutoCourse(){if(autoTried||navigator.webdriver||!pos)return;autoTried=true;findNearby(true).catch(()=>{})}
+function maybeAutoCourse(){if(autoTried||navigator.webdriver||!pos||resultsLocked)return;autoTried=true;findNearby(true).catch(()=>{})}
 function openMap(){$$('nav button,section').forEach(x=>x.classList.remove('on'));const b=$$('nav button').find(x=>x.dataset.s==='map');if(b)b.classList.add('on');$('#s-map').classList.add('on');initMap();
  const refit=()=>{if(!map)return;map.invalidateSize();fitCourse(true)};
  requestAnimationFrame(refit);setTimeout(refit,250)}
@@ -167,10 +174,25 @@ function showMissing(){const el=$('#fixholes');if(!el)return;const miss=C().sour
  if(!miss.length){el.style.display='none';el.innerHTML='';return}
  el.style.display='block';el.innerHTML=tr(`<b>${miss.length} hole${miss.length>1?'s':''} missing a green</b><br><small>Holes ${miss.join(', ')}. The map is the preview. Pick a hole and tap the photo where the green is. No GPS needed.</small>`,`<b>${miss.length} hole ang walang green</b><br><small>Holes ${miss.join(', ')}. Preview ito. Pili ka ng hole, tap ang photo kung nasaan ang green. Hindi kailangan ng GPS.</small>`)+`<div class="row"><button class="b" id="markmiss" style="font-size:18px">${tr('Mark hole','Mark hole')} ${miss[0]}</button></div>`;
  $('#markmiss').onclick=()=>{hole=miss[0];shot=null;save();render();const line=C().holes?.[hole]?.line;if(map&&line?.length)map.setView(line[line.length-1],18);say(tr(`Hole ${hole}. Tap the photo on the green.`,`Hole ${hole}. I-tap ang photo sa green.`))}}
-async function overpass(q){const servers=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];let last=new Error('Overpass failed');
- for(const url of servers){try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(q),signal:AbortSignal.timeout(26000)});
+function cacheGet(k){if(memCache.has(k))return memCache.get(k);try{const s=sessionStorage.getItem('xlc.'+k);if(!s)return null;const v=JSON.parse(s);memCache.set(k,v);return v}catch{return null}}
+function cacheSet(k,v){if(memCache.size>40)memCache.delete(memCache.keys().next().value);memCache.set(k,v);try{const s=JSON.stringify(v);if(s.length>180000)return;sessionStorage.setItem('xlc.'+k,s)}catch{}}
+function isAbort(e){return !!(e&&e.name==='AbortError')}
+function stale(gen){return gen!==opGen}
+function linkSignal(userSignal,ms){const c=new AbortController();const timer=setTimeout(()=>c.abort(new DOMException('Timeout','TimeoutError')),ms);
+ const onUser=()=>c.abort(new DOMException('Aborted','AbortError'));
+ if(userSignal){if(userSignal.aborted)onUser();else userSignal.addEventListener('abort',onUser)}
+ c.signal.addEventListener('abort',()=>{clearTimeout(timer);if(userSignal)userSignal.removeEventListener('abort',onUser)},{once:true});
+ return c.signal}
+function beginUserOp(){opGen++;if(inflight){try{inflight.abort()}catch{}}if(autoCtl){try{autoCtl.abort()}catch{}autoCtl=null}inflight=new AbortController();resultsLocked=true;return {gen:opGen,signal:inflight.signal}}
+function endLoad(token){if(token===loadToken)loadingCourse=false}
+function cancelPicker(){opGen++;if(inflight){try{inflight.abort()}catch{}inflight=null}if(autoCtl){try{autoCtl.abort()}catch{}autoCtl=null}resultsLocked=false;pendingLoad=null;loadingCourse=false;const box=$('#cresults');if(box)box.innerHTML='';status(tr('Cancelled.','Kinansela.'))}
+function cancelBtn(){return '<button type="button" class="b b2" id="pcancel" style="display:block;width:100%;margin-top:8px;min-height:52px;font-size:18px">'+hx(tr('Cancel','Kanselahin'))+'</button>'}
+async function overpass(q,signal){const key='op:'+q;const cached=cacheGet(key);if(cached)return cached;
+ const servers=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];let last=new Error('Overpass failed');
+ for(const url of servers){try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(q),signal:linkSignal(signal,26000)});
   if(!r.ok){last=new Error('HTTP '+r.status);if(r.status===429||r.status>=500)continue;throw last}
-  const data=await r.json();if(data.remark&&/timeout|runtime error/i.test(String(data.remark))&&!(data.elements&&data.elements.length)){last=new Error(String(data.remark));continue}return data}catch(e){last=e}}
+  const data=await r.json();if(data.remark&&/timeout|runtime error/i.test(String(data.remark))&&!(data.elements&&data.elements.length)){last=new Error(String(data.remark));continue}
+  cacheSet(key,data);return data}catch(e){if(isAbort(e))throw e;last=e}}
  throw last}
 function nameTokens(q){return String(q||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').split(' ').filter(w=>w.length>2&&!/^(the|golf|club|course|links|country|and|near)$/.test(w))}
 function scoreName(name,tokens){const n=String(name||'').toLowerCase();if(!tokens.length)return 0;let s=0;for(const t of tokens)if(n.includes(t))s+=2;if(tokens.every(t=>n.includes(t)))s+=5;return s}
@@ -203,23 +225,34 @@ function rankCourses(els,at,query){const tokens=nameTokens(query),seen=new Set()
  const rels=hits.filter(h=>h.type==='relation');
  const kept=hits.filter(h=>h.type!=='way'||!rels.some(r=>r.name.toLowerCase()===h.name.toLowerCase()&&dist([h.lat,h.lon],[r.lat,r.lon])<800));
  kept.sort((a,b)=>b.score-a.score||((a.km??99)-(b.km??99)));return kept.slice(0,12)}
-function showCourseHits(hits){searchHits=hits;openCard();
- if(!hits.length){$('#cresults').innerHTML='<small>'+tr('No mapped golf course for that search. Add a course and mark the greens, or get one from a friend.','Walang nahanap na course. I-add mo, o kunin sa kaibigan.')+'</small>';return}
- $('#cresults').innerHTML=hits.map((h,i)=>`<button class="b b2" data-ci="${i}" style="display:block;width:100%;margin:6px 0;min-height:52px;font-size:16px;text-align:left">${esc(h.name)}${h.city?' · '+esc(h.city):''}${h.km!=null?' · '+h.km.toFixed(1)+' km':''}</button>`).join('')+'<small>'+tr('Pick one to load holes, greens, tees, and hazards and save them on this phone.','Pili ka isa. Ilo-load ang holes, greens, tees, at hazards, tapos ise-save sa phone.')+'</small>';
- $$('#cresults [data-ci]').forEach(b=>b.onclick=()=>loadCourse(searchHits[+b.dataset.ci]))}
+function showCourseHits(hits){searchHits=hits;openCard();try{$('#csearchq').blur()}catch{}resultsLocked=true;
+ if(!hits.length){$('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0"><small>'+tr('No mapped golf course for that search. Add a course and mark the greens, or get one from a friend.','Walang nahanap na course. I-add mo, o kunin sa kaibigan.')+'</small>'+cancelBtn()+'</div>';return}
+ $('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0">'+hits.map((h,i)=>`<button type="button" class="b b2" data-ci="${i}" style="display:block;width:100%;margin:6px 0;min-height:56px;font-size:18px;text-align:left">${esc(h.name)}${h.city?' · '+esc(h.city):''}${h.km!=null?' · '+h.km.toFixed(1)+' km':''}</button>`).join('')+'<small>'+tr('Pick one to load holes, greens, tees, and hazards and save them on this phone.','Pili ka isa. Ilo-load ang holes, greens, tees, at hazards, tapos ise-save sa phone.')+'</small>'+cancelBtn()+'</div>'}
 function nominatimHit(n){const tags=n.extratags||{},cat=n.class||n.category;const isGolf=tags.leisure==='golf_course'||n.type==='golf_course'||(cat==='leisure'&&n.type==='golf_course');if(!isGolf||(n.osm_type!=='way'&&n.osm_type!=='relation'))return null;
  const city=n.address&&(n.address.city||n.address.town||n.address.village)||'';return {name:n.name||'Golf course',type:n.osm_type,id:+n.osm_id,osmId:n.osm_type+'/'+n.osm_id,lat:+n.lat,lon:+n.lon,city,km:null,score:null,outers:[],inners:[]}}
+async function nominatimSearch(q,signal){const key='nom:'+q.toLowerCase();const cached=cacheGet(key);if(cached)return cached;
+ const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&q='+encodeURIComponent(q),{signal:linkSignal(signal,12000)});
+ if(!r.ok)throw new Error('HTTP '+r.status);const places=await r.json();if(!Array.isArray(places))throw new Error('Bad search result');
+ if(places.length)cacheSet(key,places);return places}
 async function searchCourses(raw){const q=String(raw||'').trim();if(q.length<2)return say(tr('Type a course name, town, or ZIP.','I-type ang pangalan ng course, bayan, o ZIP.'));
- $('#cresults').innerHTML='<small>'+tr('Searching…','Naghahanap…')+'</small>';say(tr('Searching for '+q+'.','Hinanap: '+q+'.'));
- try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(12000)});
-  if(!r.ok)throw new Error('HTTP '+r.status);const places=await r.json();if(!places.length){$('#cresults').innerHTML='<small>'+tr('No place matched. Try the town or ZIP, or add the course yourself.','Walang lugar na tumugma. Subukan ang bayan o ZIP, o i-add ang course.')+'</small>';return say(tr('No place matched.','Walang tumugma.'))}
-  const box=boxFromPlace(places[0]);let els=[];try{els=(await overpass(golfAreaQuery(box,q))).elements||[]}catch{}
+ const op=beginUserOp();retryFn=()=>searchCourses(q);
+ $('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0"><b>'+hx(tr('Courses','Mga course'))+'</b><div><span class="spin"></span>'+hx(tr('Looking up courses…','Hinahanap ang mga course…'))+'</div>'+cancelBtn()+'</div>';
+ openCard();try{$('#csearchq').blur()}catch{}
+ status(tr('Looking up courses…','Hinahanap ang mga course…'),{busy:true});
+ try{const places=await nominatimSearch(q,op.signal);if(stale(op.gen))return;
+  if(!places.length){status(tr('No place matched. Try the town or ZIP, or add the course yourself.','Walang lugar na tumugma. Subukan ang bayan o ZIP, o i-add ang course.'));return}
+  const box=boxFromPlace(places[0]);let els=[],opErr=null;
+  try{els=(await overpass(golfAreaQuery(box,q),op.signal)).elements||[]}catch(e){if(isAbort(e)||stale(op.gen))throw e;opErr=e;els=[]}
+  if(stale(op.gen))return;
   let hits=rankCourses(els,[box.lat,box.lon],q);
   for(const n of places){const h=nominatimHit(n);if(!h||hits.some(x=>x.osmId===h.osmId))continue;h.km=dist([box.lat,box.lon],[h.lat,h.lon])/1000;h.score=scoreName(h.name,nameTokens(q));hits.push(h)}
   hits=hits.filter(h=>h.type==='way'||h.type==='relation').sort((a,b)=>(b.score||0)-(a.score||0)||((a.km??99)-(b.km??99))).slice(0,12);
-  if(!hits.length){showCourseHits([]);return say(tr('No mapped golf course. You can mark it yourself or get one from a friend.','Walang mapped na course. I-mark mo, o kunin sa kaibigan.'))}
-  showCourseHits(hits);say(tr(hits.length+' course'+(hits.length===1?'':'s')+'. Pick one to load it.',hits.length+' course. Pili ka isa para i-load.'))}
- catch(e){$('#cresults').innerHTML='<small>'+tr('Search failed. ','Hindi nag-search. ')+esc(e.message||'offline')+'</small>';say(tr('Search failed.','Hindi nag-search.'))}}
+  if(!hits.length){if(opErr){status(tr('Could not load the course list. ','Hindi ma-load ang listahan. ')+loadErr(opErr),{retry:true});return}
+   showCourseHits([]);status(tr('No mapped golf course. You can mark it yourself or get one from a friend.','Walang mapped na course. I-mark mo, o kunin sa kaibigan.'));return}
+  showCourseHits(hits);
+  if(opErr)status(tr('Showing matches. The full list failed: ','May mga tugma. Hindi kumpleto ang listahan: ')+loadErr(opErr),{retry:true});
+  else say(tr(hits.length+' course'+(hits.length===1?'':'s')+'. Pick one to load it.',hits.length+' course. Pili ka isa para i-load.'))}
+ catch(e){if(stale(op.gen)||isAbort(e))return;status(tr('Search failed. ','Hindi nag-search. ')+loadErr(e),{retry:true})}}
 function childTags(el){const tags={};for(const c of el.children)if(c.localName==='tag')tags[c.getAttribute('k')]=c.getAttribute('v');return tags}
 function parseOsm(xml){const doc=new DOMParser().parseFromString(xml,'text/xml');if(doc.getElementsByTagName('parsererror').length)throw new Error('Bad map data');
  const nodes={};for(const n of doc.getElementsByTagName('node')){if(!n.parentNode||n.parentNode.nodeName!=='osm')continue;nodes[n.getAttribute('id')]={lat:+n.getAttribute('lat'),lon:+n.getAttribute('lon'),tags:childTags(n)}}
@@ -235,16 +268,18 @@ function bboxOf(rings){let south=90,north=-90,west=180,east=-180;for(const r of 
 function elementsFromMap(xml){const parsed=parseOsm(xml),out=[];const keep=g=>g==='hole'||g==='green'||g==='tee'||g==='bunker'||g==='water_hazard'||g==='lateral_water_hazard';
  for(const w of Object.values(parsed.ways))if(keep(w.tags.golf))out.push(w);
  for(const n of Object.values(parsed.nodes))if(keep(n.tags.golf))out.push({type:'node',id:0,lat:n.lat,lon:n.lon,tags:n.tags});return out}
-async function fetchOutline(hit){try{const q=hit.type==='relation'?`[out:json][timeout:25];relation(${hit.id});out geom;`:`[out:json][timeout:25];way(${hit.id});out geom;`;
-  const el=((await overpass(q)).elements||[])[0];const rings=ringsOf(el);if(rings.outers.length)return {...rings,bbox:bboxOf(rings)}}catch{}
+async function fetchOutline(hit,signal){const key='out:'+hit.osmId;const cached=cacheGet(key);if(cached)return cached;
+ try{const q=hit.type==='relation'?`[out:json][timeout:25];relation(${hit.id});out geom;`:`[out:json][timeout:25];way(${hit.id});out geom;`;
+  const el=((await overpass(q,signal)).elements||[])[0];const rings=ringsOf(el);if(rings.outers.length){const out={...rings,bbox:bboxOf(rings)};cacheSet(key,out);return out}}catch(e){if(isAbort(e))throw e}
  const url=hit.type==='relation'?`https://api.openstreetmap.org/api/0.6/relation/${hit.id}/full`:`https://api.openstreetmap.org/api/0.6/way/${hit.id}/full`;
- const r=await fetch(url,{signal:AbortSignal.timeout(20000)});if(!r.ok)throw new Error('HTTP '+r.status);const rings=ringsFromParsed(parseOsm(await r.text()),hit.type,hit.id);
- if(!rings.outers.length)throw new Error('No course outline');return {...rings,bbox:bboxOf(rings)}}
+ const r=await fetch(url,{signal:linkSignal(signal,20000)});if(!r.ok)throw new Error('HTTP '+r.status);const rings=ringsFromParsed(parseOsm(await r.text()),hit.type,hit.id);
+ if(!rings.outers.length)throw new Error('No course outline');const out={...rings,bbox:bboxOf(rings)};cacheSet(key,out);return out}
 function padBox(b,pad){return {south:b.south-pad,north:b.north+pad,west:b.west-pad,east:b.east+pad}}
-async function fetchGolf(box){const bb=`${box.south},${box.west},${box.north},${box.east}`;
+async function fetchGolf(box,signal){const bb=`${box.south},${box.west},${box.north},${box.east}`;
  const q=`[out:json][timeout:25];(way["golf"~"^(hole|green|tee|bunker|water_hazard|lateral_water_hazard)$"](${bb});node["golf"~"^(hole|tee)$"](${bb}););out geom tags;`;
- try{return ((await overpass(q)).elements)||[]}catch(e){const area=(box.north-box.south)*(box.east-box.west);if(area>0.25)throw e;
-  const r=await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${box.west},${box.south},${box.east},${box.north}`,{signal:AbortSignal.timeout(25000)});if(!r.ok)throw new Error('HTTP '+r.status);return elementsFromMap(await r.text())}}
+ const key='golf:'+bb;const cached=cacheGet(key);if(cached)return cached;
+ try{const els=((await overpass(q,signal)).elements)||[];cacheSet(key,els);return els}catch(e){if(isAbort(e))throw e;const area=(box.north-box.south)*(box.east-box.west);if(area>0.25)throw e;
+  const r=await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${box.west},${box.south},${box.east},${box.north}`,{signal:linkSignal(signal,25000)});if(!r.ok)throw new Error('HTTP '+r.status);const els=elementsFromMap(await r.text());cacheSet(key,els);return els}}
 function courseKeyFor(hit){for(const[k,c]of Object.entries(courses))if(c&&c.osmId===hit.osmId)return k;
  let name=String(hit.name||'Golf course').replace(/[<>]/g,'').trim().slice(0,60)||'Golf course';
  if(courses[name]&&courses[name].osmId!==hit.osmId){const city=String(hit.city||'').replace(/[<>]/g,'').trim();let n2=(city?name+' ('+city+')':name+' '+hit.osmId).slice(0,60);if(courses[n2]&&courses[n2].osmId!==hit.osmId)n2=(name+' '+hit.osmId).slice(0,60);name=n2}
@@ -260,54 +295,82 @@ async function maybeGolfApi(course){const raw=window.XLOOPER_CONFIG&&window.XLOO
 let pendingLoad=null,splitSig='';
 function layoutLabel(facility,group,twice){const base=String(facility||'Course').replace(/\s+/g,' ').trim();const tail=group&&group.name?group.name:'';let name=tail?base+' - '+tail:base;if(twice)name+=' ×2';return name.replace(/[<>]/g,'').trim().slice(0,60)||'Course'}
 function holeHas(c,h){const g=c&&c.greens&&(c.greens[h]||c.greens[String(h)]);const line=c&&c.holes&&(c.holes[h]||c.holes[String(h)]);return !!(Array.isArray(g)&&g.length>=2)||!!(line&&line.line&&line.line.length>=2)}
-function showLayoutPicker(hit,groups){openCard();const nines=groups.filter(g=>g.count>=7&&g.count<=9);
- let html=`<div class="card" style="margin-bottom:0"><b>${esc(hit.name)}</b><br><small>${tr('This club has more than one course. Pick one.','Maraming course dito. Pili ka isa.')}</small>`;
- groups.forEach((g,i)=>{html+=`<button class="b b2" data-ly="${i}" style="display:block;width:100%;margin:6px 0;min-height:52px;font-size:16px;text-align:left">${esc(g.name)} · ${g.count} ${tr('holes','holes')}</button>`;if(g.count>=7&&g.count<=9)html+=`<button class="b" data-twice="${i}" style="display:block;width:100%;margin:0 0 8px;min-height:44px;font-size:16px">${tr('Play 9 twice','9, dalawang beses')}</button>`});
- if(nines.length>=2){const opts=nines.map(g=>`<option value="${esc(g.key)}">${esc(g.name)} · ${g.count}</option>`).join('');html+=`<div class="row"><select id="nineA">${opts}</select><select id="nineB">${opts}</select></div><button class="b b2" id="pairnines" style="width:100%;font-size:16px">${tr('Play these two nines','Dalawang nine')}</button>`}
- html+=`<small>${tr('Play 9 twice fills holes 10–18 with the same nine.','Ang Play 9 twice, inuulit ang nine sa holes 10–18.')}</small></div>`;
- $('#cresults').innerHTML=html;
- $$('#cresults [data-ly]').forEach(b=>b.onclick=()=>chooseLayout(+b.dataset.ly,false));
- $$('#cresults [data-twice]').forEach(b=>b.onclick=()=>chooseLayout(+b.dataset.twice,true));
- const pair=$('#pairnines');if(pair)pair.onclick=()=>pairLayouts()}
-async function chooseLayout(i,twice){const pend=pendingLoad;if(!pend||loadingCourse)return;const g=pend.groups[i];if(!g)return;await saveBuilt(pend.hit,pend.outline,pend.elements,g,twice)}
-async function pairLayouts(){const pend=pendingLoad;if(!pend||loadingCourse)return;const ga=pend.groups.find(g=>g.key===$('#nineA').value),gb=pend.groups.find(g=>g.key===$('#nineB').value);
+function showLayoutPicker(hit,groups){openCard();try{$('#csearchq').blur()}catch{}resultsLocked=true;const nines=groups.filter(g=>g.count>=7&&g.count<=9);
+ let html=`<div class="card" id="picker" style="margin-bottom:0"><b>${esc(hit.name)}</b><br><small>${tr('This club has more than one course. Pick one.','Maraming course dito. Pili ka isa.')}</small>`;
+ groups.forEach((g,i)=>{html+=`<button type="button" class="b b2" data-ly="${i}" style="display:block;width:100%;margin:6px 0;min-height:56px;font-size:18px;text-align:left">${esc(g.name)} · ${g.count} ${tr('holes','holes')}</button>`;if(g.count>=7&&g.count<=9)html+=`<button type="button" class="b" data-twice="${i}" style="display:block;width:100%;margin:0 0 8px;min-height:52px;font-size:18px">${tr('Play 9 twice','9, dalawang beses')}</button>`});
+ if(nines.length>=2){const opts=nines.map(g=>`<option value="${esc(g.key)}">${esc(g.name)} · ${g.count}</option>`).join('');html+=`<div class="row"><select id="nineA">${opts}</select><select id="nineB">${opts}</select></div><button type="button" class="b b2" id="pairnines" style="width:100%;font-size:18px">${tr('Play these two nines','Dalawang nine')}</button>`}
+ html+=`<small>${tr('Play 9 twice fills holes 10–18 with the same nine. This list stays until you pick or cancel.','Ang Play 9 twice, inuulit ang nine sa holes 10–18. Mananatili ang listahan hanggang pumili ka o mag-cancel.')}</small>`+cancelBtn()+'</div>';
+ $('#cresults').innerHTML=html}
+function loadedLine(hit,group,label,nh,twice){const nice=group&&group.name?String(hit.name||'').trim()+' '+group.name+(twice?' ×2':''):label;const n=tr(nice+' loaded, '+nh+' hole'+(nh===1?'':'s')+'.',nice+' loaded, '+nh+' holes.');return n}
+async function chooseLayout(i,twice){const pend=pendingLoad;if(!pend)return;if(loadingCourse)return status(tr('Still loading…','Lino-load pa…'),{busy:true});const g=pend.groups[i];if(!g)return;retryFn=()=>chooseLayout(i,twice);status(tr('Loading course…','Lino-load ang course…'),{busy:true});await saveBuilt(pend.hit,pend.outline,pend.elements,g,twice)}
+async function pairLayouts(){const pend=pendingLoad;if(!pend)return;if(loadingCourse)return status(tr('Still loading…','Lino-load pa…'),{busy:true});const ga=pend.groups.find(g=>g.key===$('#nineA').value),gb=pend.groups.find(g=>g.key===$('#nineB').value);
  if(!ga||!gb||ga.key===gb.key)return say(tr('Pick two different nines.','Pumili ng dalawang magkaibang nine.'));
  const label=layoutLabel(pend.hit.name,{name:ga.name+' + '+gb.name},false),osmId=pend.hit.osmId+'#'+ga.key+'+'+gb.key,name=courseKeyFor({name:label,osmId,city:pend.hit.city||''});
- if(name!==cur&&totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return;
- loadingCourse=true;try{const A=XLMap.buildCourse({name:ga.name,osmId:pend.hit.osmId+'#'+ga.key,layout:ga.key,ids:ga.ids,outers:pend.outline.outers,inners:pend.outline.inners,elements:pend.elements});
+ if(name!==cur&&totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return status(tr('Still on '+cur+'.','Nandito pa sa '+cur+'.'));
+ retryFn=()=>pairLayouts();status(tr('Loading course…','Lino-load ang course…'),{busy:true});
+ const token=++loadToken;loadingCourse=true;try{const A=XLMap.buildCourse({name:ga.name,osmId:pend.hit.osmId+'#'+ga.key,layout:ga.key,ids:ga.ids,outers:pend.outline.outers,inners:pend.outline.inners,elements:pend.elements});
   const B=XLMap.buildCourse({name:gb.name,osmId:pend.hit.osmId+'#'+gb.key,layout:gb.key,ids:gb.ids,outers:pend.outline.outers,inners:pend.outline.inners,elements:pend.elements});
-  const built=XLMap.appendNine(A,B);built.name=label;built.osmId=osmId;courses[name]=built;cur=name;round=newRound();hole=1;save();render();openMap();
-  say(tr(label+'. 18 holes.',label+'. 18 holes.'))}
- catch(e){say(tr('Could not load that course. '+(e&&e.message?e.message:''),'Hindi ma-load ang course. '+(e&&e.message?e.message:'')))}finally{loadingCourse=false}}
+  const built=XLMap.appendNine(A,B);built.name=label;built.osmId=osmId;courses[name]=built;cur=name;round=newRound();hole=1;save();render();resultsLocked=false;openMap();
+  say(tr(label+' loaded, 18 holes.',label+' loaded, 18 holes.'))}
+ catch(e){status(tr('Could not load that course. ','Hindi ma-load ang course. ')+loadErr(e),{retry:true})}finally{endLoad(token)}}
 async function saveBuilt(hit,outline,elements,group,twice){const label=layoutLabel(hit.name,group,twice),osmId=hit.osmId+(group&&group.key?'#'+group.key:'')+(twice?'#x2':''),name=courseKeyFor({name:label,osmId,city:hit.city||''}),switching=name!==cur;
- if(switching&&totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return;
- loadingCourse=true;try{let built=XLMap.buildCourse({name:label,osmId,layout:group&&group.key,ids:group&&group.ids,outers:outline.outers,inners:outline.inners,elements});
+ if(switching&&totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return status(tr('Still on '+cur+'.','Nandito pa sa '+cur+'.'));
+ const token=++loadToken;loadingCourse=true;try{let built=XLMap.buildCourse({name:label,osmId,layout:group&&group.key,ids:group&&group.ids,outers:outline.outers,inners:outline.inners,elements});
   if(twice)built=XLMap.replayNine(built);built.name=label;built.osmId=osmId;if(!twice&&!(group&&group.key)){try{await maybeGolfApi(built)}catch{}}
-  courses[name]=built;if(switching){cur=name;round=newRound();hole=1}save();render();openMap();const miss=missingHoles();
-  const nh=Object.keys(built.holes||{}).length,ng=Object.keys(built.greens).length;
+  courses[name]=built;if(switching){cur=name;round=newRound();hole=1}save();render();resultsLocked=false;openMap();const miss=missingHoles();
+  const nh=Object.keys(built.holes||{}).length;
   const again=twice?tr(' Holes 10 to 18 are the same nine again.',' 10 hanggang 18, ulit ang nine.'):'';
-  say(tr(name+'. '+nh+' hole'+(nh===1?'':'s')+', '+ng+' green'+(ng===1?'':'s')+'.'+(miss.length?' '+miss.length+' still need a green. Tap the map to mark hole '+miss[0]+'.':'')+again,name+'. '+nh+' hole, '+ng+' green.'+(miss.length?' Kulang ang green sa hole '+miss[0]+'. I-tap ang map.':'')+again))}
- catch(e){say(tr('Could not load that course. '+(e&&e.message?e.message:''),'Hindi ma-load ang course. '+(e&&e.message?e.message:'')))}finally{loadingCourse=false}}
-async function loadCourse(hit,opts){const auto=!!(opts&&opts.auto);if(!hit||loadingCourse)return;if(hit.type!=='way'&&hit.type!=='relation')return say(tr('That course has no outline to load.','Walang outline ang course na iyan.'));
- loadingCourse=true;try{say(tr('Loading '+hit.name+'.','Lino-load si '+hit.name+'.'));const outline=await fetchOutline(hit);const elements=await fetchGolf(padBox(outline.bbox,0.002));
+  const missTxt=miss.length?tr(' '+miss.length+' still need a green.',' Kulang ang green sa hole '+miss[0]+'.'):'';
+  say(loadedLine(hit,group,label,nh,twice)+missTxt+again)}
+ catch(e){status(tr('Could not load '+(group&&group.name?group.name:label)+'. ','Hindi ma-load si '+(group&&group.name?group.name:label)+'. ')+loadErr(e),{retry:true})}finally{endLoad(token)}}
+async function loadCourse(hit,opts){const auto=!!(opts&&opts.auto);if(!hit)return;if(auto&&(resultsLocked||(opts.gen!=null&&stale(opts.gen))))return;if(hit.type!=='way'&&hit.type!=='relation')return say(tr('That course has no outline to load.','Walang outline ang course na iyan.'));
+ let gen,signal;if(auto){gen=opts.gen!=null?opts.gen:opGen;signal=autoCtl&&autoCtl.signal}
+ else{const op=beginUserOp();gen=op.gen;signal=op.signal;retryFn=()=>loadCourse(hit,{auto:false});
+  $('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0"><b>'+hx(hit.name)+'</b><div><span class="spin"></span>'+hx(tr('Loading course…','Lino-load ang course…'))+'</div>'+cancelBtn()+'</div>';
+  openCard();try{$('#csearchq').blur()}catch{}status(tr('Loading course…','Lino-load ang course…'),{busy:true})}
+ const token=++loadToken;loadingCourse=true;try{const outline=await fetchOutline(hit,signal);if(stale(gen)||(auto&&resultsLocked))return;const elements=await fetchGolf(padBox(outline.bbox,0.002),signal);if(stale(gen)||(auto&&resultsLocked))return;
   const choices=(XLMap.layouts({elements,outers:outline.outers,inners:outline.inners})||[]).filter(g=>g&&g.name&&g.count>=1);
   if(choices.length>1){pendingLoad={hit,outline,elements,groups:choices};if(auto)return;showLayoutPicker(hit,choices);
    say(tr(hit.name+'. '+choices.map(g=>g.name+' '+g.count).join(', ')+'. Pick one.',hit.name+'. '+choices.map(g=>g.name+' '+g.count).join(', ')+'. Pili ka isa.'));return}
-  loadingCourse=false;await saveBuilt(hit,outline,elements,choices[0]||null,false)}
- catch(e){say(tr('Could not load that course. '+(e&&e.message?e.message:''),'Hindi ma-load ang course. '+(e&&e.message?e.message:'')))}finally{loadingCourse=false}}
-async function findNearby(auto){if(auto&&navigator.webdriver)return;if(!pos){if(!auto)say(tr('Waiting for GPS. Search by name works from home.','Hintayin ang GPS. Pwede ring mag-search ng course sa bahay.'));return}if(!auto)say(tr('Looking for a course near you.','Hinanap ang course malapit sa iyo.'));
- try{const around=`around:3000,${pos[0]},${pos[1]}`;let els=[];
-  try{els=((await overpass(`[out:json][timeout:25];(way["leisure"="golf_course"](${around});relation["leisure"="golf_course"](${around}););out tags center geom;`)).elements)||[]}
-  catch(e){if(auto)return;els=((await overpass(`[out:json][timeout:25];(way["leisure"="golf_course"](${around});relation["leisure"="golf_course"](${around}););out tags center;`)).elements)||[]}
-  const hits=rankCourses(els,pos,'');if(!hits.length){if(!auto){openCard();$('#cresults').innerHTML='<small>'+tr('No mapped course within 3 km. Search by name, or mark the greens yourself.','Walang course sa loob ng 3 km. Mag-search, o i-mark ang greens.')+'</small>';say(tr('No mapped course within 3 km.','Walang course sa loob ng 3 km.'))}return}
+  if(auto&&resultsLocked)return;await saveBuilt(hit,outline,elements,choices[0]||null,false)}
+ catch(e){if(stale(gen)||isAbort(e)||auto)return;status(tr('Could not load '+hit.name+'. ','Hindi ma-load si '+hit.name+'. ')+loadErr(e),{retry:true})}
+ finally{endLoad(token)}}
+async function findNearby(auto){if(auto&&(navigator.webdriver||resultsLocked))return;if(!pos){if(!auto)say(tr('Waiting for GPS. Search by name works from home.','Hintayin ang GPS. Pwede ring mag-search ng course sa bahay.'));return}
+ let gen,signal;if(auto){if(autoCtl){try{autoCtl.abort()}catch{}}autoCtl=new AbortController();signal=autoCtl.signal;gen=opGen}
+ else{const op=beginUserOp();gen=op.gen;signal=op.signal;retryFn=()=>findNearby(false);
+  $('#cresults').innerHTML='<div class="card" id="picker" style="margin-bottom:0"><b>'+hx(tr('Courses near you','Mga course malapit'))+'</b><div><span class="spin"></span>'+hx(tr('Looking for a course near you…','Hinanap ang course malapit sa iyo…'))+'</div>'+cancelBtn()+'</div>';
+  openCard();status(tr('Looking for a course near you…','Hinanap ang course malapit sa iyo…'),{busy:true})}
+ try{const around=`around:3000,${pos[0]},${pos[1]}`;
+  const qGeom=`[out:json][timeout:25];(way["leisure"="golf_course"](${around});relation["leisure"="golf_course"](${around}););out tags center geom;`;
+  let els=[];try{els=((await overpass(qGeom,signal)).elements)||[]}
+  catch(e){if(isAbort(e)||stale(gen)||(auto&&resultsLocked))return;try{els=((await overpass(qGeom.replace(' center geom;',' center;'),signal)).elements)||[]}catch(e2){if(isAbort(e2)||stale(gen)||auto)return;status(tr('Could not reach OpenStreetMap. ','Hindi maabot ang OpenStreetMap. ')+loadErr(e2),{retry:true});return}}
+  if(stale(gen)||(auto&&resultsLocked))return;
+  const hits=rankCourses(els,pos,'');if(!hits.length){if(auto)return;showCourseHits([]);status(tr('No mapped course within 3 km. Search by name, or mark the greens yourself.','Walang course sa loob ng 3 km. Mag-search, o i-mark ang greens.'));return}
   const inside=hits.find(h=>h.outers&&h.outers.length&&XLMap.pointInCourse(pos,h.outers,h.inners||[]));
-  if(auto){const id=C().osmId||'';if(inside&&id!==inside.osmId&&!id.startsWith(inside.osmId+'#'))await loadCourse(inside,{auto:true});return}
-  showCourseHits(hits);if(inside)await loadCourse(inside);else say(tr(hits.length+' course'+(hits.length>1?'s':'')+' nearby. Pick one to load it.',hits.length+' course ang malapit. Pili ka isa.'))}
- catch(e){if(!auto)say(tr('Could not reach OpenStreetMap.','Hindi maabot ang OpenStreetMap.'))}}
+  if(auto){const id=C().osmId||'';if(inside&&id!==inside.osmId&&!id.startsWith(inside.osmId+'#')&&!resultsLocked)await loadCourse(inside,{auto:true,gen});return}
+  if(inside)await loadCourse(inside);else{showCourseHits(hits);say(tr(hits.length+' course'+(hits.length>1?'s':'')+' nearby. Pick one to load it.',hits.length+' course ang malapit. Pili ka isa.'))}}
+ catch(e){if(stale(gen)||isAbort(e)||auto)return;status(tr('Could not reach OpenStreetMap. ','Hindi maabot ang OpenStreetMap. ')+loadErr(e),{retry:true})}}
 $('#gosearch').onclick=()=>{openCard();$('#csearchq').focus()};
 $('#csearchgo').onclick=()=>searchCourses($('#csearchq').value);
 $('#csearchq').addEventListener('keydown',e=>{if(e.key==='Enter')searchCourses($('#csearchq').value)});
 $('#findgps').onclick=()=>findNearby(false);
+let choiceAt=0,choiceBtn=null,touchPick=null,ignorePtrUntil=0,swallowClick=false;
+function fireChoice(b){if(!b)return;if(b.id==='pcancel'){cancelPicker();return}
+ if(b.dataset.ci==null&&b.dataset.ly==null&&b.dataset.twice==null&&b.id!=='pairnines')return;
+ const now=Date.now();if(choiceBtn===b&&now-choiceAt<700)return;choiceAt=now;choiceBtn=b;$$('#cresults button.picked').forEach(x=>x.classList.remove('picked'));b.classList.add('picked');b.setAttribute('aria-busy','true');
+ if(b.dataset.ci!=null)loadCourse(searchHits[+b.dataset.ci]);
+ else if(b.dataset.ly!=null)chooseLayout(+b.dataset.ly,false);
+ else if(b.dataset.twice!=null)chooseLayout(+b.dataset.twice,true);
+ else if(b.id==='pairnines')pairLayouts()}
+const resultsEl=$('#cresults');
+if(resultsEl){resultsEl.addEventListener('touchstart',e=>{const b=e.target.closest&&e.target.closest('button');if(!b)return;b.classList.add('pressed');const t=e.changedTouches&&e.changedTouches[0];touchPick=t?{x:t.clientX,y:t.clientY,b}:null},{passive:true});
+ resultsEl.addEventListener('touchend',e=>{const b=e.target.closest&&e.target.closest('button');$$('#cresults button.pressed').forEach(x=>x.classList.remove('pressed'));if(!b||!touchPick||touchPick.b!==b)return;const t=e.changedTouches&&e.changedTouches[0];if(!t||Math.hypot(t.clientX-touchPick.x,t.clientY-touchPick.y)>16)return;swallowClick=true;ignorePtrUntil=Date.now()+700;fireChoice(b)},{passive:true});
+ resultsEl.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(b)fireChoice(b)})}
+function eatGhost(e){if(!swallowClick||Date.now()>ignorePtrUntil){swallowClick=false;return}e.preventDefault();e.stopPropagation();if(e.type==='click')swallowClick=false}
+for(const type of ['mousedown','mouseup','click'])document.addEventListener(type,eatGhost,true);
+document.addEventListener('pointerdown',e=>{const b=e.target.closest&&e.target.closest('button');if(b)b.classList.add('pressed')},{passive:true});
+document.addEventListener('pointerup',()=>$$('button.pressed').forEach(b=>b.classList.remove('pressed')),{passive:true});
+document.addEventListener('pointercancel',()=>$$('button.pressed').forEach(b=>b.classList.remove('pressed')),{passive:true});
 function showSplit(){const box=$('#splitbox');if(!box)return;const c=C(),have=[];for(let h=1;h<=18;h++)if(holeHas(c,h))have.push(h);
  if(have.length<2){box.style.display='none';return}box.style.display='block';
  const nine=have.every(h=>h<=9)&&have.filter(h=>h<=9).length>=7;const b=$('#replay9');if(b)b.style.display=nine?'':'none';
@@ -540,4 +603,8 @@ $('#xi-later').onclick=()=>dismissXircle();
 $('#xircle').onclick=e=>{if(e.target.id==='xircle')dismissXircle()};
 render();connect();
 maybeXircle();
-if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');
+function showUpdate(){const el=$('#upd');if(!el)return;el.hidden=false;el.onclick=()=>location.reload()}
+if('serviceWorker'in navigator){let sawControl=!!navigator.serviceWorker.controller,readyForUpdate=sawControl;
+ navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!sawControl){sawControl=true;setTimeout(()=>{readyForUpdate=true},1500);return}showUpdate()});
+ navigator.serviceWorker.addEventListener('message',e=>{if(e.data&&e.data.type==='xlooper-update'&&readyForUpdate)showUpdate()});
+ navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(reg=>{reg.update().catch(()=>{})}).catch(()=>{})}
