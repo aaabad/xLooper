@@ -1,0 +1,63 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>xLooper</title><meta name="theme-color" content="#0b3d1e">
+<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#06210f;color:#fff;font-size:20px}
+header{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top) + 8px) 14px 8px;background:#0b3d1e}
+.logo{font-size:28px;font-weight:800}.logo b{color:#9be564}
+nav{display:flex;position:fixed;bottom:0;left:0;right:0;background:#0b3d1e;padding-bottom:env(safe-area-inset-bottom);z-index:1000}
+nav button{flex:1;background:none;border:0;color:#cfe;font-size:16px;padding:14px 2px;font-weight:700}nav button.on{color:#9be564;border-top:3px solid #9be564}
+section{display:none;padding:12px 12px 100px}section.on{display:block}
+.big{font-size:84px;font-weight:900;text-align:center;line-height:1}.sub{text-align:center;color:#bdc;font-size:20px}
+.row{display:flex;gap:10px;margin:10px 0}.row>*{flex:1}
+button.b{background:#9be564;color:#06210f;border:0;border-radius:16px;font-size:22px;font-weight:800;padding:18px 8px;min-height:66px}
+button.b2{background:#1d5c33;color:#fff}button.mic{background:#ffd23f;font-size:26px}button.red{background:#e55}
+#map{height:62vh;border-radius:12px}input,select{font-size:20px;padding:10px;border-radius:10px;border:0;width:100%}
+table{width:100%;border-collapse:collapse;font-size:18px}td,th{padding:7px 4px;text-align:center;border-bottom:1px solid #1d5c33}
+td input{width:52px;padding:6px;text-align:center}.cur{background:#1d5c33}
+.card{background:#0b3d1e;border-radius:14px;padding:12px;margin:10px 0}#log{color:#ffd23f;min-height:28px;text-align:center}
+.msgs{max-height:40vh;overflow:auto}.msg{padding:6px 0;border-bottom:1px solid #1d5c33}.msg.ann{color:#ffd23f}
+small{color:#9bb}
+</style></head><body>
+<header><div class="logo"><b>x</b>Looper</div><div id="gps" style="font-size:15px">GPS…</div></header>
+<section id="s-caddy" class="on">
+ <div class="row"><button class="b b2" id="prev">◀</button><div style="text-align:center;flex:2"><div style="font-size:30px;font-weight:800">Hole <span id="hn">1</span></div><small>Par <span id="hp">4</span> · <span id="cname"></span></small></div><button class="b b2" id="next">▶</button></div>
+ <div class="big" id="yd">—</div><div class="sub">yards to center <span id="fb"></span></div>
+ <div class="sub" style="font-size:28px;margin:8px;color:#9be564" id="club">&nbsp;</div>
+ <div id="log"></div>
+ <div class="row"><button class="b mic" id="mic">🎤 Talk to xLooper</button></div>
+ <div class="row"><button class="b" id="bYd">Yardage</button><button class="b" id="bClub">What club</button></div>
+ <div class="row"><button class="b b2" id="bShot">Mark shot</button><button class="b b2" id="bScoreQ">My score</button></div>
+ <div class="card"><div class="row" style="align-items:center"><span>Strokes</span><button class="b b2" data-d="-1" data-k="s">−</button><span class="big" style="font-size:44px" id="st">0</span><button class="b b2" data-d="1" data-k="s">+</button></div>
+ <div class="row" style="align-items:center"><span>Putts</span><button class="b b2" data-d="-1" data-k="p">−</button><span class="big" style="font-size:44px" id="pt">0</span><button class="b b2" data-d="1" data-k="p">+</button></div>
+ <div id="lastshot" class="sub"></div></div>
+ <div class="row"><button class="b b2" id="bMsgs">📢 Read messages</button><button class="b b2" id="bSay">🎙 Send msg</button></div>
+</section>
+<section id="s-map"><div id="map"></div>
+ <div class="row"><button class="b" id="mkGreen">📍 Mark green (I'm on it)</button></div>
+ <div class="row"><button class="b b2" id="osm">Load OSM greens</button><button class="b b2" id="center">Center me</button></div>
+ <small>Tap the map to set the green center for the current hole (Hole <span id="mh">1</span>). OSM greens: tap one to assign it.</small>
+</section>
+<section id="s-card"><div class="card"><select id="course"></select><div class="row"><input id="newc" placeholder="New course name"><button class="b b2" id="addc" style="flex:0 0 90px">Add</button></div></div>
+ <div id="tot" class="sub" style="font-size:24px;margin:8px"></div>
+ <table id="sc"></table>
+ <div class="row"><button class="b" id="fin">Finish & save round</button><button class="b red" id="newr">New round</button></div>
+ <h3>History</h3><div id="hist"></div></section>
+<section id="s-clubs"><h3>My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub">+ Club</button><button class="b b2" id="resetc">Reset</button></div>
+ <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> Auto-read new tournament messages</label><br><label><input type="checkbox" id="metric" style="width:auto"> Distances in meters</label></div>
+ <small>xLooper v0.3 · for Boss (GSSC)</small></section>
+<section id="s-tour"><div id="tjoin" class="card">
+ <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)"><div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
+ <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div><small>Create uses the current course pars.</small></div>
+ <div id="tin" style="display:none"><div class="card"><b id="ttitle"></b> · code <b id="tcd"></b> <button class="b b2" id="share" style="min-height:40px;padding:6px 10px;font-size:16px">Share link</button> <button class="b b2" id="leave" style="min-height:40px;padding:6px 10px;font-size:16px">Leave</button><br><small id="tstat"></small></div>
+ <h3>Leaderboard</h3><table id="lb"></table>
+ <h3>Chat & announcements</h3><div class="msgs card" id="msgs"></div>
+ <div class="row"><input id="mtxt" placeholder="Message"><button class="b" id="msend" style="flex:0 0 80px">Send</button></div>
+ <div class="row"><button class="b b2" id="mread">🔊 Read messages</button><button class="b b2" id="mvoice">🎙 Speak msg</button><label style="flex:0 0 auto;font-size:16px"><input type="checkbox" id="mann" style="width:auto">📢</label></div></div>
+</section>
+<nav><button data-s="caddy" class="on">Caddy</button><button data-s="map">Map</button><button data-s="card">Card</button><button data-s="tour">Tourney</button><button data-s="clubs">Clubs</button></nav>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script></body></html>
