@@ -1,4 +1,4 @@
-// xLooper v0.4 – voice golf caddy PWA
+// xLooper v0.5 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -7,6 +7,9 @@ let courses=L('courses',{'My Course':{pars:[4,4,3,5,4,4,3,4,5,4,4,3,5,4,4,3,4,5]
 let cur=L('cur',Object.keys(courses)[0]); if(!courses[cur])cur=Object.keys(courses)[0];
 let round=L('round',null), hist=L('hist',[]), clubs=L('clubs',DEF_CLUBS), hole=L('hole',1), tour=L('tour',null), opts=L('opts',{autoread:true,metric:false});
 let pos=null, acc=null, shot=L('shot',null), lastHeard=L('heard',0), msgs=[], tstate=null;
+let xstate=L('xircle',{opens:0,asks:0,at:0,signup:null});
+if(!xstate||typeof xstate!=='object'||Array.isArray(xstate))xstate={opens:0,asks:0,at:0,signup:null};
+xstate.opens=(+xstate.opens||0)+1;P('xircle',xstate);
 const C=()=>courses[cur], par=h=>C().pars[h-1]||4;
 const save=()=>{P('courses',courses);P('cur',cur);P('round',round);P('hist',hist);P('clubs',clubs);P('hole',hole);P('tour',tour);P('opts',opts);P('shot',shot)};
 const newRound=()=>({course:cur,date:new Date().toISOString(),holes:{}});
@@ -70,7 +73,7 @@ function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#c
  $('#course').innerHTML=Object.keys(courses).map(c=>`<option ${c===cur?'selected':''}>${c}</option>`).join('');
  $('#hist').innerHTML=hist.slice().reverse().map(r=>`<div class="card">${r.date.slice(0,10)} · ${r.course}: <b>${r.s}</b> (${relS(r.rel)}) · ${r.putts} putts · ${r.n} holes</div>`).join('')||'<small>No rounds yet</small>';
  $('#ct').innerHTML=clubs.map((c,i)=>`<tr><td><input data-cn=${i} value="${c[0]}" style="width:90px"></td><td><input type=number data-cy=${i} value=${c[1]} style="width:90px"></td><td><button class="b b2" style="min-height:40px;padding:4px 12px" onclick="clubs.splice(${i},1);save();render()">✕</button></td></tr>`).join('');
- $('#autoread').checked=opts.autoread;$('#metric').checked=opts.metric;drawGreens()}
+ $('#autoread').checked=opts.autoread;$('#metric').checked=opts.metric;drawGreens();xircleStatus()}
 window.go=go;
 // ---------- events ----------
 $$('nav button').forEach(b=>b.onclick=()=>{$$('nav button,section').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#s-'+b.dataset.s).classList.add('on');if(b.dataset.s==='map')initMap()});
@@ -83,7 +86,7 @@ $('#addclub').onclick=()=>{clubs.push(['LW',60]);save();render()};$('#resetc').o
 $('#autoread').onchange=e=>{opts.autoread=e.target.checked;save()};$('#metric').onchange=e=>{opts.metric=e.target.checked;save();render()};
 $('#course').onchange=e=>{if(totals().n&&!confirm('Switch course? Current round card stays saved only if you Finish it first.'))return render();cur=e.target.value;round=newRound();hole=1;save();render();if(map)fitGreens()};
 $('#addc').onclick=()=>{const n=$('#newc').value.trim();if(!n)return;courses[n]=courses[n]||{pars:Array(18).fill(4),greens:{},shapes:[]};cur=n;round=newRound();hole=1;$('#newc').value='';save();render()};
-$('#fin').onclick=()=>{const t=totals();if(!t.n)return say('Nothing to save yet.');hist.push({...t,course:cur,date:round.date,holes:round.holes});round=newRound();hole=1;save();render();say(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`)};
+$('#fin').onclick=()=>{const t=totals();if(!t.n)return say('Nothing to save yet.');hist.push({...t,course:cur,date:round.date,holes:round.holes});round=newRound();hole=1;save();render();say(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`);maybeXircle()};
 $('#newr').onclick=()=>{if(confirm('Clear the current card?')){round=newRound();hole=1;save();render()}};
 // ---------- map ----------
 let map,me,gLayer,osmLayer;
@@ -269,5 +272,53 @@ $('#share').onclick=()=>{const u=location.origin+location.pathname+'?t='+tour.co
 const qt=new URLSearchParams(location.search).get('t');if(qt){$('#tcode').value=qt;if(!tour||tour.code!==qt.toUpperCase()){$$('nav button')[3].click();$('#tname').focus()}}
 const qCourse=new URLSearchParams(location.search).get('course');if(qCourse)previewCourse(location.search+location.hash);
 $('#tname').value=tour?.name||L('pname','');$('#tname').onchange=e=>P('pname',e.target.value);
+// ---------- xircle signup ----------
+// Auto prompt: after the first saved round or the 3rd open. One dismiss, then at most one more ask after 2 further saved rounds.
+function xircleEndpoint(){const t=window.XLOOPER_CONFIG&&window.XLOOPER_CONFIG.signupTopic;if(!t||typeof t!=='string')return '';return /^https?:\/\//i.test(t)?t:'https://ntfy.sh/'+t.replace(/^\/+/,'')}
+function xircleDue(){if(xstate.signup||xstate.withdrawn)return false;const asks=xstate.asks|0;if(asks>=2)return false;if(asks===0)return hist.length>=1||(xstate.opens|0)>=3;return hist.length>=(xstate.at|0)+2}
+let xircleManual=false;
+function openXircle(manual){xircleManual=!!manual;$('#xi-ok').checked=false;$('#xi-err').textContent='';if(!$('#xi-name').value.trim())$('#xi-name').value=L('pname','')||'';$('#xircle').style.display='block'}
+function dismissXircle(){$('#xircle').style.display='none';if(!xircleManual){xstate.asks=(xstate.asks|0)+1;xstate.at=hist.length;P('xircle',xstate)}xircleManual=false}
+function maybeXircle(){const el=$('#xircle');if(!el||el.style.display==='block')return;if(xircleDue())openXircle(false)}
+function xircleStatus(){const s=$('#xi-status'),b=$('#xi-set');if(!s||!b)return;
+ if(xstate.signup){s.textContent=xstate.signup.sent?`Joined as ${xstate.signup.name}.`:`Saved on this device as ${xstate.signup.name}. The signup notice has not been sent yet.`;b.textContent=xstate.signup.sent?'Withdraw':'Retry signup';b.classList.toggle('red',!!xstate.signup.sent)}
+ else{s.textContent=xstate.withdrawn?'You withdrew. You can join again any time.':'Not joined.';b.textContent='Join xircle';b.classList.remove('red')}}
+function xirclePayload(){
+ const name=$('#xi-name').value.trim().slice(0,80),email=$('#xi-email').value.trim().slice(0,120),phone=$('#xi-phone').value.trim().slice(0,24),zip=$('#xi-zip').value.trim().slice(0,12),home=$('#xi-home').value.trim().slice(0,80);
+ if(name.length<1)return {error:'Enter your name.'};
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return {error:'Enter a real email address.'};
+ if(phone&&(phone.replace(/\D/g,'').length<7||!/^[0-9+().\-\s]+$/.test(phone)))return {error:'Check the phone number, or leave it blank.'};
+ if(zip&&!/^[A-Za-z0-9 \-]{3,12}$/.test(zip))return {error:'Check the ZIP, or leave it blank.'};
+ if(!$('#xi-ok').checked)return {error:'Check the box to join. You can also choose Not now.'};
+ const body={t:'signup',name,email,consent:true,ts:Date.now()};
+ if(phone)body.phone=phone;if(zip)body.zip=zip;if(home)body.home=home;
+ return {body};
+}
+async function sendXircle(body){const url=xircleEndpoint();if(!url)throw new Error('Signup is not configured');const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body),signal:AbortSignal.timeout(8000)});if(!r.ok)throw new Error('HTTP '+r.status)}
+async function submitXircle(){
+ const got=xirclePayload();$('#xi-err').textContent=got.error||'';if(got.error)return;
+ xstate.signup={name:got.body.name,email:got.body.email,phone:got.body.phone||'',zip:got.body.zip||'',home:got.body.home||'',ts:got.body.ts,sent:false};xstate.withdrawn=false;P('xircle',xstate);
+ try{await sendXircle(got.body);xstate.signup.sent=true;P('xircle',xstate);$('#xircle').style.display='none';say('You are in xircle.')}
+ catch(e){$('#xi-err').textContent='Saved on this device, but the notice did not send ('+(e.message||'offline')+'). You can retry from Clubs.'}
+ xircleStatus()}
+async function withdrawXircle(){
+ if(!xstate.signup)return;
+ if(!confirm('Withdraw from xircle? This removes your signup from this device.'))return;
+ const email=xstate.signup.email,name=xstate.signup.name;
+ xstate.signup=null;xstate.withdrawn=true;xstate.asks=2;P('xircle',xstate);xircleStatus();
+ try{await sendXircle({t:'withdraw',email,name,ts:Date.now()});say('Withdrawn from xircle.')}
+ catch{say('Removed on this device. The withdrawal notice did not send.')}}
+async function retryXircle(){
+ const s=xstate.signup;if(!s)return;
+ const body={t:'signup',name:s.name,email:s.email,consent:true,ts:s.ts||Date.now()};
+ if(s.phone)body.phone=s.phone;if(s.zip)body.zip=s.zip;if(s.home)body.home=s.home;
+ try{await sendXircle(body);s.sent=true;P('xircle',xstate);say('Signup sent.')}
+ catch{say('Still could not send the signup.')}
+ xircleStatus()}
+$('#xi-set').onclick=()=>{if(xstate.signup&&!xstate.signup.sent)return retryXircle();if(xstate.signup)return withdrawXircle();openXircle(true)};
+$('#xi-join').onclick=()=>submitXircle();
+$('#xi-later').onclick=()=>dismissXircle();
+$('#xircle').onclick=e=>{if(e.target.id==='xircle')dismissXircle()};
 render();connect();
+maybeXircle();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');

@@ -22,6 +22,9 @@ td input{width:52px;padding:6px;text-align:center}.cur{background:#1d5c33}
 .msgs{max-height:40vh;overflow:auto}.msg{padding:6px 0;border-bottom:1px solid #1d5c33}.msg.ann{color:#ffd23f}
 small{color:#9bb}
 #near{border:2px solid #ffd23f}#sharebox input{font-size:14px}
+#xircle{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:2000;overflow:auto;padding:16px 12px calc(16px + env(safe-area-inset-bottom))}
+#xircle .card{max-width:440px;margin:12px auto}#xircle label{display:flex;gap:10px;align-items:flex-start;font-size:16px;line-height:1.35}
+#xircle label input{width:auto;flex:0 0 auto;margin-top:3px}#xi-err{color:#ffd23f;min-height:1.2em}
 </style></head><body>
 <header><div class="logo"><b>x</b>Looper</div><div id="gps" style="font-size:15px">GPS…</div></header>
 <div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes">Switch</button><button class="b b2" id="nearno">Not now</button></div></div>
@@ -53,7 +56,8 @@ small{color:#9bb}
  <h3>History</h3><div id="hist"></div></section>
 <section id="s-clubs"><h3>My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub">+ Club</button><button class="b b2" id="resetc">Reset</button></div>
  <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> Auto-read new tournament messages</label><br><label><input type="checkbox" id="metric" style="width:auto"> Distances in meters</label></div>
- <small>xLooper v0.4 · for Boss (GSSC)</small></section>
+ <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
+ <small>xLooper v0.5 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)"><div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
  <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div><small>Create uses the current course pars.</small></div>
@@ -64,5 +68,19 @@ small{color:#9bb}
  <div class="row"><button class="b b2" id="mread">🔊 Read messages</button><button class="b b2" id="mvoice">🎙 Speak msg</button><label style="flex:0 0 auto;font-size:16px"><input type="checkbox" id="mann" style="width:auto">📢</label></div></div>
 </section>
 <nav><button data-s="caddy" class="on">Caddy</button><button data-s="map">Map</button><button data-s="card">Card</button><button data-s="tour">Tourney</button><button data-s="clubs">Clubs</button></nav>
+<div id="xircle" style="display:none"><div class="card">
+ <h3 style="margin-top:0">Join xircle</h3>
+ <p style="margin:0 0 8px">Optional. xLooper keeps working either way.</p>
+ <input id="xi-name" placeholder="Name" autocomplete="name">
+ <input id="xi-email" type="email" placeholder="Email" autocomplete="email" style="margin-top:8px">
+ <input id="xi-phone" type="tel" placeholder="Phone (optional)" autocomplete="tel" style="margin-top:8px">
+ <input id="xi-zip" placeholder="ZIP (optional)" autocomplete="postal-code" style="margin-top:8px">
+ <input id="xi-home" placeholder="Home course (optional)" style="margin-top:8px">
+ <label style="margin-top:12px"><input type="checkbox" id="xi-ok"> <span>Yes, xircle (Global Service Systems Corporation) may contact me about xLooper and other xircle apps.</span></label>
+ <p style="margin:8px 0"><a href="https://xircle.us/privacy" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+ <div id="xi-err"></div>
+ <div class="row"><button class="b" id="xi-join" style="font-size:18px">Join xircle</button><button class="b b2" id="xi-later" style="font-size:18px">Not now</button></div>
+</div></div>
+<script src="config.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script></body></html>
