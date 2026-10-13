@@ -1,4 +1,4 @@
-// xLooper v0.5 – voice golf caddy PWA
+// xLooper v0.6 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -7,6 +7,7 @@ let courses=L('courses',{'My Course':{pars:[4,4,3,5,4,4,3,4,5,4,4,3,5,4,4,3,4,5]
 let cur=L('cur',Object.keys(courses)[0]); if(!courses[cur])cur=Object.keys(courses)[0];
 let round=L('round',null), hist=L('hist',[]), clubs=L('clubs',DEF_CLUBS), hole=L('hole',1), tour=L('tour',null), opts=L('opts',{autoread:true,metric:false});
 let pos=null, acc=null, shot=L('shot',null), lastHeard=L('heard',0), msgs=[], tstate=null;
+let searchHits=[], loadingCourse=false, autoTried=false, missSig='';
 let xstate=L('xircle',{opens:0,asks:0,at:0,signup:null});
 if(!xstate||typeof xstate!=='object'||Array.isArray(xstate))xstate={opens:0,asks:0,at:0,signup:null};
 xstate.opens=(+xstate.opens||0)+1;P('xircle',xstate);
@@ -26,13 +27,17 @@ function listen(cb,prompt){if(!SR){say("Voice input isn't supported in this brow
 const R=6371e3,rad=x=>x*Math.PI/180;
 function dist(a,b){const dl=rad(b[0]-a[0]),dn=rad(b[1]-a[1]),h=Math.sin(dl/2)**2+Math.cos(rad(a[0]))*Math.cos(rad(b[0]))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
 const yds=m=>Math.round(opts.metric?m:m*1.09361),unit=()=>opts.metric?'meters':'yards';
-if('geolocation'in navigator)navigator.geolocation.watchPosition(p=>{pos=[p.coords.latitude,p.coords.longitude];acc=p.coords.accuracy;$('#gps').textContent='GPS ±'+Math.round(acc*1.09)+'y';render();considerNearby();if(me)me.setLatLng(pos)},e=>$('#gps').textContent='GPS: '+e.message,{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+if('geolocation'in navigator)navigator.geolocation.watchPosition(p=>{pos=[p.coords.latitude,p.coords.longitude];acc=p.coords.accuracy;$('#gps').textContent='GPS ±'+Math.round(acc*1.09)+'y';render();considerNearby();maybeAutoCourse();if(me)me.setLatLng(pos)},e=>$('#gps').textContent='GPS: '+e.message,{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
 else $('#gps').textContent='No GPS';
 let wake;async function keepAwake(){try{wake=await navigator.wakeLock?.request('screen')}catch{}}document.addEventListener('visibilitychange',()=>document.visibilityState==='visible'&&keepAwake());keepAwake();
 const toGreen=()=>{const g=C().greens[hole];return g&&pos?dist(pos,g):null};
 function clubFor(y){const s=[...clubs].sort((a,b)=>a[1]-b[1]);if(y<=40)return['putter or wedge chip',y];for(const c of s)if(c[1]>=y-4)return c;return s[s.length-1]}
 // ---------- caddy actions ----------
-function sayYardage(){const g=C().greens[hole];if(!g)return say(`No green set for hole ${hole}. Open the map and tap the green.`);if(!pos)return say('Waiting for GPS.');say(`${yds(toGreen())} ${unit()} to the center of the green on hole ${hole}.`)}
+function holeTargets(h){try{return window.XLMap?XLMap.targets(C(),h,pos):null}catch{return null}}
+function sayYardage(){const g=C().greens[hole];if(!g)return say(`No green set for hole ${hole}. Open the map and tap the green.`);if(!pos)return say('Waiting for GPS.');
+ const c=yds(dist(pos,g)),t=holeTargets(hole),f=t?yds(dist(pos,t.front)):c,b=t?yds(dist(pos,t.back)):c;
+ if(f===c&&b===c)return say(`${c} ${unit()} to the center of the green on hole ${hole}.`);
+ say(`${f} ${unit()} to the front, ${c} to the center, ${b} to the back of the green on hole ${hole}.`)}
 function sayClub(){const d=toGreen();if(d==null)return sayYardage();const y=Math.round(d*1.09361),c=clubFor(y);
  say(y>clubs.reduce((m,c)=>Math.max(m,c[1]),0)?`${y} yards. Hit ${c[0]}, you won't reach, so play for position.`:y<=40?`${y} yards. Chip or putt.`:`${y} yards. I like the ${clubName(c[0])}.`)}
 const clubName=n=>n.replace(/^(\d)i$/,'$1 iron').replace(/^(\d)W$/,'$1 wood').replace(/^(\d)H$/,'$1 hybrid').replace(/^PW$/,'pitching wedge').replace(/^GW$/,'gap wedge').replace(/^SW$/,'sand wedge').replace(/^LW$/,'lob wedge');
@@ -43,7 +48,9 @@ function sayScore(){const t=totals();if(!t.n)return say('No scores yet this roun
 function setScore(s,p,h=hole){round.holes[h]={s,p:p??round.holes[h]?.p??0};save();render();postScore(h);const t=totals(),d=s-par(h);
  const name={'-3':'albatross','-2':'eagle','-1':'birdie','0':'par','1':'bogey','2':'double bogey'}[d]||(d>0?`${d} over`:'');
  say(`Hole ${h}: ${s}${p!=null?`, ${p} putt${p==1?'':'s'}`:''}. ${name}. You're ${relTxt(t.rel)} through ${t.n}.`)}
-function go(h){hole=Math.max(1,Math.min(18,h));shot=null;save();render();const g=C().greens[hole];say(`Hole ${hole}, par ${par(hole)}.`+(g&&pos?` ${yds(dist(pos,g))} ${unit()} to the green.`:''))}
+function go(h){hole=Math.max(1,Math.min(18,h));shot=null;save();render();const g=C().greens[hole];
+ let extra='';if(g&&pos){const c=yds(dist(pos,g)),t=holeTargets(hole),f=t?yds(dist(pos,t.front)):c,b=t?yds(dist(pos,t.back)):c;extra=(f===c&&b===c)?` ${c} ${unit()} to the green.`:` ${f} front, ${c} center, ${b} back.`}
+ say(`Hole ${hole}, par ${par(hole)}.`+extra)}
 // ---------- voice commands ----------
 const NUM={zero:0,one:1,won:1,two:2,to:2,too:2,three:3,four:4,for:4,five:5,six:6,seven:7,eight:8,ate:8,nine:9,ten:10,eleven:11,twelve:12};
 const nums=t=>t.toLowerCase().replace(/[a-z]+/g,w=>w in NUM?NUM[w]:w).match(/\d+/g)?.map(Number)||[];
@@ -63,6 +70,7 @@ function command(t){const s=t.toLowerCase();$('#log').textContent='“'+t+'”';
 // ---------- render ----------
 function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#cname').textContent=cur;$('#mh').textContent=hole;
  const d=toGreen();$('#yd').textContent=d==null?'—':yds(d);$('#fb').textContent=opts.metric?'(m)':'';
+ const tg=d!=null&&holeTargets(hole);$('#ydF').textContent=tg?yds(dist(pos,tg.front)):'—';$('#ydB').textContent=tg?yds(dist(pos,tg.back)):'—';
  $('#club').innerHTML=d==null?(C().greens[hole]?'Waiting for GPS…':'Set green on Map'):(()=>{const y=Math.round(d*1.09361);return y<=40?'Chip / putt':clubFor(y)[0]})();
  const x=round.holes[hole]||{};$('#st').textContent=x.s||0;$('#pt').textContent=x.p||0;
  let h='<tr><th>H</th><th>Par</th><th>Score</th><th>Putts</th><th>+/-</th></tr>',run=0;
@@ -70,10 +78,10 @@ function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#c
   if(i===9){const f=[1,2,3,4,5,6,7,8,9].reduce((a,k)=>a+(round.holes[k]?.s||0),0);h+=`<tr><th>Out</th><th>${C().pars.slice(0,9).reduce((a,b)=>a+b,0)}</th><th>${f||''}</th><th></th><th></th></tr>`}}
  const t=totals();h+=`<tr><th>Tot</th><th>${C().pars.reduce((a,b)=>a+b,0)}</th><th>${t.s||''}</th><th>${t.putts||''}</th><th>${t.n?relS(t.rel):''}</th></tr>`;$('#sc').innerHTML=h;
  $('#tot').textContent=t.n?`${t.s} (${relS(t.rel)}) thru ${t.n} · ${t.putts} putts`:'No scores yet';
- $('#course').innerHTML=Object.keys(courses).map(c=>`<option ${c===cur?'selected':''}>${c}</option>`).join('');
+ $('#course').innerHTML=Object.keys(courses).map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
  $('#hist').innerHTML=hist.slice().reverse().map(r=>`<div class="card">${r.date.slice(0,10)} · ${r.course}: <b>${r.s}</b> (${relS(r.rel)}) · ${r.putts} putts · ${r.n} holes</div>`).join('')||'<small>No rounds yet</small>';
  $('#ct').innerHTML=clubs.map((c,i)=>`<tr><td><input data-cn=${i} value="${c[0]}" style="width:90px"></td><td><input type=number data-cy=${i} value=${c[1]} style="width:90px"></td><td><button class="b b2" style="min-height:40px;padding:4px 12px" onclick="clubs.splice(${i},1);save();render()">✕</button></td></tr>`).join('');
- $('#autoread').checked=opts.autoread;$('#metric').checked=opts.metric;drawGreens();xircleStatus()}
+ $('#autoread').checked=opts.autoread;$('#metric').checked=opts.metric;drawGreens();showMissing();xircleStatus()}
 window.go=go;
 // ---------- events ----------
 $$('nav button').forEach(b=>b.onclick=()=>{$$('nav button,section').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#s-'+b.dataset.s).classList.add('on');if(b.dataset.s==='map')initMap()});
@@ -95,9 +103,18 @@ function initMap(){if(map){setTimeout(()=>map.invalidateSize(),50);return}
  LL.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:20,maxNativeZoom:19,attribution:'Esri World Imagery'}).addTo(map);
  me=LL.circleMarker(pos||[0,0],{radius:8,color:'#fff',fillColor:'#2a8cff',fillOpacity:1}).addTo(map);gLayer=LL.layerGroup().addTo(map);osmLayer=LL.layerGroup().addTo(map);
  map.on('click',e=>{C().greens[hole]=[r6(e.latlng.lat),r6(e.latlng.lng)];C().shapes=(C().shapes||[]).filter(s=>+s.hole!==hole);save();render();say(`Green set for hole ${hole}.`)});drawGreens();fitGreens()}
-function fitGreens(){const g=Object.values(C().greens);if(pos)map.setView(pos,17);else if(g.length)map.fitBounds(g,{maxZoom:17})}
+function coursePts(){const pts=[];for(const g of Object.values(C().greens||{}))if(Array.isArray(g)&&g.length>=2)pts.push(g);for(const r of (C().outline&&C().outline.outers)||[])for(const p of r||[])if(Array.isArray(p))pts.push(p);return pts}
+function playingHere(){if(!pos)return false;for(const g of Object.values(C().greens||{}))if(Array.isArray(g)&&g.length>=2&&dist(pos,g)<4000)return true;const o=C().outline;return !!(o&&o.outers&&o.outers.length&&window.XLMap&&XLMap.pointInCourse(pos,o.outers,o.inners||[]))}
+function fitCourse(forceWhole){if(!map)return;const pts=coursePts();if(!forceWhole&&playingHere()){map.setView(pos,17);return}if(pts.length>=2)map.fitBounds(pts,{maxZoom:17,padding:[20,20]});else if(pts.length===1)map.setView(pts[0],17);else if(pos)map.setView(pos,17)}
+function fitGreens(){fitCourse(false)}
 function drawGreens(){if(!gLayer)return;gLayer.clearLayers();
- for(const s of C().shapes||[])if(s.pts?.length>=3)LL.polygon(s.pts,{color:+s.hole===hole?'#ffd23f':'#9be564',weight:2,fillOpacity:.2}).addTo(gLayer);
+ const quiet={interactive:false};
+ for(const r of (C().outline&&C().outline.outers)||[])if(r.length>=3)LL.polygon(r,{color:'#fff',weight:2,fill:false,...quiet}).addTo(gLayer);
+ const hz={bunker:'#c2a15a',water_hazard:'#3aa0d8',lateral_water_hazard:'#e55'};
+ for(const h of C().hazards||[])if(h.pts?.length>=3)LL.polygon(h.pts,{color:hz[h.kind]||'#888',weight:1,fillColor:hz[h.kind]||'#888',fillOpacity:.45,...quiet}).addTo(gLayer);
+ for(const[h,info]of Object.entries(C().holes||{}))if(info.line?.length>=2)LL.polyline(info.line,{color:+h===hole?'#ffd23f':'#fff',weight:+h===hole?3:1,opacity:.75,...quiet}).addTo(gLayer);
+ for(const s of C().shapes||[])if(s.kind!=='hazard'&&s.pts?.length>=3)LL.polygon(s.pts,{color:+s.hole===hole?'#ffd23f':'#9be564',weight:2,fillOpacity:.25,...quiet}).addTo(gLayer);
+ for(const t of Object.values(C().tees||{}))if(Array.isArray(t)&&t.length>=2)LL.circleMarker(t,{radius:5,color:'#fff',fillColor:'#9be564',fillOpacity:1,weight:1,...quiet}).addTo(gLayer);
  for(const[h,g]of Object.entries(C().greens))LL.marker(g,{icon:LL.divIcon({className:'',html:`<div style="background:${+h===hole?'#ffd23f':'#9be564'};color:#06210f;border-radius:50%;width:30px;height:30px;line-height:30px;text-align:center;font-weight:800;border:2px solid #fff">${h}</div>`,iconSize:[30,30],iconAnchor:[15,15]})}).addTo(gLayer)}
 function markGreenHere(){if(!pos)return say('Waiting for GPS.');C().greens[hole]=[r6(pos[0]),r6(pos[1])];C().shapes=(C().shapes||[]).filter(s=>+s.hole!==hole);save();render();say(`Green marked for hole ${hole} at your position.`)}
 $('#mkGreen').onclick=markGreenHere;$('#center').onclick=()=>pos&&map.setView(pos,18);
@@ -110,6 +127,128 @@ $('#osm').onclick=async()=>{const c=map.getCenter();say('Looking for greens near
    const ho=holes.find(h=>{const e=h.geometry[h.geometry.length-1];return dist([e.lat,e.lon],cen)<40&&h.tags.ref});if(ho&&!C().greens[ho.tags.ref]){C().greens[+ho.tags.ref]=cen.map(r6);rememberShape(+ho.tags.ref,pts);auto++}
    LL.polygon(pts,{color:'#ffd23f',weight:2}).addTo(osmLayer).on('click',ev=>{LL.DomEvent.stop(ev);C().greens[hole]=cen.map(r6);rememberShape(hole,pts);save();render();say(`Green set for hole ${hole}.`)})}
   save();render();say(`Found ${greens.length} greens${auto?`, auto-assigned ${auto} by hole number`:''}. Tap a yellow green to assign it to hole ${hole}.`)}catch(e){say('Could not reach OpenStreetMap.')}};
+// ---------- course search (home setup; GPS find is the backup) ----------
+function maybeAutoCourse(){if(autoTried||navigator.webdriver||!pos)return;autoTried=true;findNearby(true).catch(()=>{})}
+function openMap(){$$('nav button,section').forEach(x=>x.classList.remove('on'));const b=$$('nav button').find(x=>x.dataset.s==='map');if(b)b.classList.add('on');$('#s-map').classList.add('on');initMap();
+ const refit=()=>{if(!map)return;map.invalidateSize();fitCourse(true)};
+ requestAnimationFrame(refit);setTimeout(refit,250)}
+function missingHoles(){const holes=C().holes||{},miss=[];for(let h=1;h<=18;h++)if(holes[h]?.line?.length>=2&&!hasGreen(C(),h))miss.push(h);return miss}
+function showMissing(){const el=$('#fixholes');if(!el)return;const miss=C().source==='osm'?missingHoles():[];const sig=cur+'|'+miss.join(',');if(sig===missSig)return;missSig=sig;
+ if(!miss.length){el.style.display='none';el.innerHTML='';return}
+ el.style.display='block';el.innerHTML=`<b>${miss.length} hole${miss.length>1?'s':''} missing a green</b><br><small>Holes ${miss.join(', ')}. The map is the preview. Pick a hole and tap the photo where the green is. No GPS needed.</small><div class="row"><button class="b" id="markmiss" style="font-size:18px">Mark hole ${miss[0]}</button></div>`;
+ $('#markmiss').onclick=()=>{hole=miss[0];shot=null;save();render();const line=C().holes?.[hole]?.line;if(map&&line?.length)map.setView(line[line.length-1],18);say(`Hole ${hole}. Tap the photo on the green.`)}}
+async function overpass(q){const servers=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter'];let last=new Error('Overpass failed');
+ for(const url of servers){try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:'data='+encodeURIComponent(q),signal:AbortSignal.timeout(26000)});
+  if(!r.ok){last=new Error('HTTP '+r.status);if(r.status===429||r.status>=500)continue;throw last}
+  const data=await r.json();if(data.remark&&/timeout|runtime error/i.test(String(data.remark))&&!(data.elements&&data.elements.length)){last=new Error(String(data.remark));continue}return data}catch(e){last=e}}
+ throw last}
+function nameTokens(q){return String(q||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').split(' ').filter(w=>w.length>2&&!/^(the|golf|club|course|links|country|and|near)$/.test(w))}
+function scoreName(name,tokens){const n=String(name||'').toLowerCase();if(!tokens.length)return 0;let s=0;for(const t of tokens)if(n.includes(t))s+=2;if(tokens.every(t=>n.includes(t)))s+=5;return s}
+function boxFromPlace(hit){const lat=+hit.lat,lon=+hit.lon;let south=lat-0.12,north=lat+0.12,west=lon-0.16,east=lon+0.16;
+ if(Array.isArray(hit.boundingbox)&&hit.boundingbox.length===4){const s=+hit.boundingbox[0],n=+hit.boundingbox[1],w=+hit.boundingbox[2],e=+hit.boundingbox[3];
+  if([s,n,w,e].every(Number.isFinite)){south=s;north=n;west=w;east=e;if((north-south)<0.08||(east-west)<0.08){south=lat-0.12;north=lat+0.12;west=lon-0.16;east=lon+0.16}}}
+ if(north-south>0.35){const c=(north+south)/2;south=c-0.175;north=c+0.175}if(east-west>0.35){const c=(east+west)/2;west=c-0.175;east=c+0.175}
+ return {south,north,west,east,lat,lon}}
+function golfAreaQuery(box,q){const bb=`${box.south},${box.west},${box.north},${box.east}`;const nameRe=nameTokens(q).map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+ const extra=nameRe?`way["leisure"="golf_course"]["name"~"${nameRe}",i](around:20000,${box.lat},${box.lon});relation["leisure"="golf_course"]["name"~"${nameRe}",i](around:20000,${box.lat},${box.lon});`:'';
+ return `[out:json][timeout:25];(way["leisure"="golf_course"](${bb});relation["leisure"="golf_course"](${bb});${extra});out tags center;`}
+function samePt(a,b){return Math.abs(a[0]-b[0])<1e-5&&Math.abs(a[1]-b[1])<1e-5}
+function stitch(lines){const unused=(lines||[]).filter(l=>l&&l.length>=2).map(l=>l.slice());const rings=[];
+ while(unused.length){let ring=unused.pop();if(!samePt(ring[0],ring[ring.length-1])){let grew=true;while(grew){grew=false;for(let i=0;i<unused.length;i++){const w=unused[i],a=ring[0],b=ring[ring.length-1],c=w[0],d=w[w.length-1];
+  if(samePt(b,c)){ring=ring.concat(w.slice(1));unused.splice(i,1);grew=true;break}
+  if(samePt(b,d)){ring=ring.concat(w.slice().reverse().slice(1));unused.splice(i,1);grew=true;break}
+  if(samePt(a,d)){ring=w.concat(ring.slice(1));unused.splice(i,1);grew=true;break}
+  if(samePt(a,c)){ring=w.slice().reverse().concat(ring.slice(1));unused.splice(i,1);grew=true;break}}}}rings.push(ring)}return rings}
+function ringsOf(el){if(!el)return {outers:[],inners:[]};
+ if(el.type==='way'&&el.geometry&&el.geometry.length>=3)return {outers:[el.geometry.map(p=>[p.lat,p.lon])],inners:[]};
+ if(el.type==='relation'&&el.members){const out=[],inn=[];for(const m of el.members){if(m.type!=='way'||!m.geometry||m.geometry.length<2)continue;const line=m.geometry.map(p=>[p.lat,p.lon]);(m.role==='inner'?inn:out).push(line)}return {outers:stitch(out),inners:stitch(inn)}}
+ return {outers:[],inners:[]}}
+function rankCourses(els,at,query){const tokens=nameTokens(query),seen=new Set(),hits=[];
+ for(const el of els||[]){if(el.type!=='way'&&el.type!=='relation')continue;const key=el.type+'/'+el.id;if(seen.has(key))continue;seen.add(key);
+  const tags=el.tags||{};const name=tags.name||tags['name:en']||'Golf course';let lat=el.center&&el.center.lat,lon=el.center&&el.center.lon;
+  if(!Number.isFinite(lat)&&el.geometry&&el.geometry.length){lat=el.geometry.reduce((s,p)=>s+p.lat,0)/el.geometry.length;lon=el.geometry.reduce((s,p)=>s+p.lon,0)/el.geometry.length}
+  if(!Number.isFinite(lat)&&Number.isFinite(el.lat)){lat=+el.lat;lon=+el.lon}if(!Number.isFinite(lat))continue;
+  const rings=ringsOf(el);const km=at?dist(at,[lat,lon])/1000:null;
+  hits.push({name,type:el.type,id:+el.id,osmId:key,lat,lon,city:tags['addr:city']||tags['addr:town']||tags['addr:suburb']||'',km,score:scoreName(name,tokens),outers:rings.outers,inners:rings.inners})}
+ const rels=hits.filter(h=>h.type==='relation');
+ const kept=hits.filter(h=>h.type!=='way'||!rels.some(r=>r.name.toLowerCase()===h.name.toLowerCase()&&dist([h.lat,h.lon],[r.lat,r.lon])<800));
+ kept.sort((a,b)=>b.score-a.score||((a.km??99)-(b.km??99)));return kept.slice(0,12)}
+function showCourseHits(hits){searchHits=hits;openCard();
+ if(!hits.length){$('#cresults').innerHTML='<small>No mapped golf course for that search. Add a course and mark the greens, or get one from a friend.</small>';return}
+ $('#cresults').innerHTML=hits.map((h,i)=>`<button class="b b2" data-ci="${i}" style="display:block;width:100%;margin:6px 0;min-height:52px;font-size:16px;text-align:left">${esc(h.name)}${h.city?' · '+esc(h.city):''}${h.km!=null?' · '+h.km.toFixed(1)+' km':''}</button>`).join('')+'<small>Pick one to load holes, greens, tees, and hazards and save them on this phone.</small>';
+ $$('#cresults [data-ci]').forEach(b=>b.onclick=()=>loadCourse(searchHits[+b.dataset.ci]))}
+function nominatimHit(n){const tags=n.extratags||{},cat=n.class||n.category;const isGolf=tags.leisure==='golf_course'||n.type==='golf_course'||(cat==='leisure'&&n.type==='golf_course');if(!isGolf||(n.osm_type!=='way'&&n.osm_type!=='relation'))return null;
+ const city=n.address&&(n.address.city||n.address.town||n.address.village)||'';return {name:n.name||'Golf course',type:n.osm_type,id:+n.osm_id,osmId:n.osm_type+'/'+n.osm_id,lat:+n.lat,lon:+n.lon,city,km:null,score:null,outers:[],inners:[]}}
+async function searchCourses(raw){const q=String(raw||'').trim();if(q.length<2)return say('Type a course name, town, or ZIP.');
+ $('#cresults').innerHTML='<small>Searching…</small>';say('Searching for '+q+'.');
+ try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&extratags=1&limit=5&q='+encodeURIComponent(q),{signal:AbortSignal.timeout(12000)});
+  if(!r.ok)throw new Error('HTTP '+r.status);const places=await r.json();if(!places.length){$('#cresults').innerHTML='<small>No place matched. Try the town or ZIP, or add the course yourself.</small>';return say('No place matched.')}
+  const box=boxFromPlace(places[0]);let els=[];try{els=(await overpass(golfAreaQuery(box,q))).elements||[]}catch{}
+  let hits=rankCourses(els,[box.lat,box.lon],q);
+  for(const n of places){const h=nominatimHit(n);if(!h||hits.some(x=>x.osmId===h.osmId))continue;h.km=dist([box.lat,box.lon],[h.lat,h.lon])/1000;h.score=scoreName(h.name,nameTokens(q));hits.push(h)}
+  hits=hits.filter(h=>h.type==='way'||h.type==='relation').sort((a,b)=>(b.score||0)-(a.score||0)||((a.km??99)-(b.km??99))).slice(0,12);
+  if(!hits.length){showCourseHits([]);return say('No mapped golf course. You can mark it yourself or get one from a friend.')}
+  showCourseHits(hits);say(hits.length+' course'+(hits.length===1?'':'s')+'. Pick one to load it.')}
+ catch(e){$('#cresults').innerHTML='<small>Search failed. '+esc(e.message||'offline')+'</small>';say('Search failed.')}}
+function childTags(el){const tags={};for(const c of el.children)if(c.localName==='tag')tags[c.getAttribute('k')]=c.getAttribute('v');return tags}
+function parseOsm(xml){const doc=new DOMParser().parseFromString(xml,'text/xml');if(doc.getElementsByTagName('parsererror').length)throw new Error('Bad map data');
+ const nodes={};for(const n of doc.getElementsByTagName('node')){if(!n.parentNode||n.parentNode.nodeName!=='osm')continue;nodes[n.getAttribute('id')]={lat:+n.getAttribute('lat'),lon:+n.getAttribute('lon'),tags:childTags(n)}}
+ const ways={};for(const w of doc.getElementsByTagName('way')){if(!w.parentNode||w.parentNode.nodeName!=='osm')continue;const geometry=[];for(const c of w.children)if(c.localName==='nd'){const p=nodes[c.getAttribute('ref')];if(p)geometry.push({lat:p.lat,lon:p.lon})}ways[w.getAttribute('id')]={type:'way',id:+w.getAttribute('id'),tags:childTags(w),geometry}}
+ const rels=[];for(const rel of doc.getElementsByTagName('relation')){if(!rel.parentNode||rel.parentNode.nodeName!=='osm')continue;const members=[];for(const c of rel.children)if(c.localName==='member')members.push({type:c.getAttribute('type'),ref:+c.getAttribute('ref'),role:c.getAttribute('role')||''});rels.push({type:'relation',id:+rel.getAttribute('id'),tags:childTags(rel),members})}
+ return {nodes,ways,rels}}
+function ringsFromParsed(parsed,type,id){if(type==='way'){const w=parsed.ways[String(id)];if(!w||w.geometry.length<3)return {outers:[],inners:[]};return {outers:[w.geometry.map(p=>[p.lat,p.lon])],inners:[]}}
+ const rel=parsed.rels.find(r=>r.id===+id)||parsed.rels[0];if(!rel)return {outers:[],inners:[]};const out=[],inn=[];
+ for(const m of rel.members){if(m.type!=='way')continue;const w=parsed.ways[String(m.ref)];if(!w||w.geometry.length<2)continue;(m.role==='inner'?inn:out).push(w.geometry.map(p=>[p.lat,p.lon]))}
+ return {outers:stitch(out),inners:stitch(inn)}}
+function bboxOf(rings){let south=90,north=-90,west=180,east=-180;for(const r of rings.outers.concat(rings.inners))for(const p of r){if(p[0]<south)south=p[0];if(p[0]>north)north=p[0];if(p[1]<west)west=p[1];if(p[1]>east)east=p[1]}
+ if(!(south<north&&west<east))throw new Error('No course outline');return {south,north,west,east}}
+function elementsFromMap(xml){const parsed=parseOsm(xml),out=[];const keep=g=>g==='hole'||g==='green'||g==='tee'||g==='bunker'||g==='water_hazard'||g==='lateral_water_hazard';
+ for(const w of Object.values(parsed.ways))if(keep(w.tags.golf))out.push(w);
+ for(const n of Object.values(parsed.nodes))if(keep(n.tags.golf))out.push({type:'node',id:0,lat:n.lat,lon:n.lon,tags:n.tags});return out}
+async function fetchOutline(hit){try{const q=hit.type==='relation'?`[out:json][timeout:25];relation(${hit.id});out geom;`:`[out:json][timeout:25];way(${hit.id});out geom;`;
+  const el=((await overpass(q)).elements||[])[0];const rings=ringsOf(el);if(rings.outers.length)return {...rings,bbox:bboxOf(rings)}}catch{}
+ const url=hit.type==='relation'?`https://api.openstreetmap.org/api/0.6/relation/${hit.id}/full`:`https://api.openstreetmap.org/api/0.6/way/${hit.id}/full`;
+ const r=await fetch(url,{signal:AbortSignal.timeout(20000)});if(!r.ok)throw new Error('HTTP '+r.status);const rings=ringsFromParsed(parseOsm(await r.text()),hit.type,hit.id);
+ if(!rings.outers.length)throw new Error('No course outline');return {...rings,bbox:bboxOf(rings)}}
+function padBox(b,pad){return {south:b.south-pad,north:b.north+pad,west:b.west-pad,east:b.east+pad}}
+async function fetchGolf(box){const bb=`${box.south},${box.west},${box.north},${box.east}`;
+ const q=`[out:json][timeout:25];(way["golf"~"^(hole|green|tee|bunker|water_hazard|lateral_water_hazard)$"](${bb});node["golf"~"^(hole|tee)$"](${bb}););out geom tags;`;
+ try{return ((await overpass(q)).elements)||[]}catch(e){const area=(box.north-box.south)*(box.east-box.west);if(area>0.25)throw e;
+  const r=await fetch(`https://api.openstreetmap.org/api/0.6/map?bbox=${box.west},${box.south},${box.east},${box.north}`,{signal:AbortSignal.timeout(25000)});if(!r.ok)throw new Error('HTTP '+r.status);return elementsFromMap(await r.text())}}
+function courseKeyFor(hit){for(const[k,c]of Object.entries(courses))if(c&&c.osmId===hit.osmId)return k;
+ let name=String(hit.name||'Golf course').replace(/[<>]/g,'').trim().slice(0,60)||'Golf course';
+ if(courses[name]&&courses[name].osmId!==hit.osmId){const city=String(hit.city||'').replace(/[<>]/g,'').trim();let n2=(city?name+' ('+city+')':name+' '+hit.osmId).slice(0,60);if(courses[n2]&&courses[n2].osmId!==hit.osmId)n2=(name+' '+hit.osmId).slice(0,60);name=n2}
+ return name}
+async function maybeGolfApi(course){const raw=window.XLOOPER_CONFIG&&window.XLOOPER_CONFIG.golfCourseApiKey;if(!raw||typeof raw!=='string'||!raw.trim())return;
+ let auth=raw.trim();if(!/^key |^bearer /i.test(auth))auth='Key '+auth;const headers={Authorization:auth};
+ const s=await fetch('https://api.golfcourseapi.com/v1/search?search_query='+encodeURIComponent(course.name),{headers,signal:AbortSignal.timeout(8000)});if(!s.ok)return;const sj=await s.json();
+ const list=sj.courses||sj.data||[];const tokens=nameTokens(course.name);const pick=list.find(c=>scoreName(c.course_name||c.club_name||c.name||'',tokens)>0);if(!pick||!pick.id)return;
+ const cr=await fetch('https://api.golfcourseapi.com/v1/courses/'+encodeURIComponent(pick.id),{headers,signal:AbortSignal.timeout(8000)});if(!cr.ok)return;const cj=await cr.json();const body=cj.course||cj;
+ const sets=[].concat((body.tees&&body.tees.male)||[],(body.tees&&body.tees.female)||[]);sets.sort((a,b)=>((b.holes&&b.holes.length)||0)-((a.holes&&a.holes.length)||0));
+ const holes=sets[0]&&sets[0].holes;if(!holes||holes.length<9)return;const yards=[];
+ for(let i=0;i<Math.min(18,holes.length);i++){const par=+holes[i].par;if(par>=3&&par<=6)course.pars[i]=par;const y=+holes[i].yardage;yards[i]=y>0?Math.round(y):0}course.yardages=yards}
+async function loadCourse(hit){if(!hit||loadingCourse)return;if(hit.type!=='way'&&hit.type!=='relation')return say('That course has no outline to load.');
+ const name=courseKeyFor(hit),switching=name!==cur;
+ if(switching&&totals().n&&!confirm('Switch course? Current round card stays saved only if you Finish it first.'))return;
+ loadingCourse=true;try{say('Loading '+name+'.');const outline=await fetchOutline(hit);const elements=await fetchGolf(padBox(outline.bbox,0.002));
+  const built=XLMap.buildCourse({name,osmId:hit.osmId,outers:outline.outers,inners:outline.inners,elements});try{await maybeGolfApi(built)}catch{}
+  courses[name]=built;if(switching){cur=name;round=newRound();hole=1}save();render();openMap();const miss=missingHoles();
+  const nh=Object.keys(built.holes||{}).length,ng=Object.keys(built.greens).length;
+  say(name+'. '+nh+' hole'+(nh===1?'':'s')+', '+ng+' green'+(ng===1?'':'s')+'.'+(miss.length?' '+miss.length+' still need a green. Tap the map to mark hole '+miss[0]+'.':''))}
+ catch(e){say('Could not load that course. '+(e&&e.message?e.message:''))}finally{loadingCourse=false}}
+async function findNearby(auto){if(auto&&navigator.webdriver)return;if(!pos){if(!auto)say('Waiting for GPS. Search by name works from home.');return}if(!auto)say('Looking for a course near you.');
+ try{const around=`around:3000,${pos[0]},${pos[1]}`;let els=[];
+  try{els=((await overpass(`[out:json][timeout:25];(way["leisure"="golf_course"](${around});relation["leisure"="golf_course"](${around}););out tags center geom;`)).elements)||[]}
+  catch(e){if(auto)return;els=((await overpass(`[out:json][timeout:25];(way["leisure"="golf_course"](${around});relation["leisure"="golf_course"](${around}););out tags center;`)).elements)||[]}
+  const hits=rankCourses(els,pos,'');if(!hits.length){if(!auto){openCard();$('#cresults').innerHTML='<small>No mapped course within 3 km. Search by name, or mark the greens yourself.</small>';say('No mapped course within 3 km.')}return}
+  const inside=hits.find(h=>h.outers&&h.outers.length&&XLMap.pointInCourse(pos,h.outers,h.inners||[]));
+  if(auto){if(inside&&inside.osmId!==C().osmId)await loadCourse(inside);return}
+  showCourseHits(hits);if(inside)await loadCourse(inside);else say(hits.length+' course'+(hits.length>1?'s':'')+' nearby. Pick one to load it.')}
+ catch(e){if(!auto)say('Could not reach OpenStreetMap.')}}
+$('#gosearch').onclick=()=>{openCard();$('#csearchq').focus()};
+$('#csearchgo').onclick=()=>searchCourses($('#csearchq').value);
+$('#csearchq').addEventListener('keydown',e=>{if(e.key==='Enter')searchCourses($('#csearchq').value)});
+$('#findgps').onclick=()=>findNearby(false);
 // ---------- course sharing ----------
 // Share link: ?course=CODE#cache=<deflate+base64 of the course>. ntfy topic xlooper-course-<code> keeps the JSON ~12h; the hash is the fallback.
 const r6=n=>Math.round(+n*1e6)/1e6;
@@ -181,6 +320,7 @@ function importCourse(mode){
   const dest=courses[name]=courses[name]||{pars:Array(18).fill(4),greens:{},shapes:[]};
   dest.pars=data.pars.slice();dest.greens={};for(const[h,g]of Object.entries(data.greens))dest.greens[h]=[g[0],g[1]];
   dest.shapes=data.shapes.map(s=>({hole:s.hole,kind:s.kind,pts:s.pts.map(p=>[p[0],p[1]])}));
+  delete dest.tees;delete dest.holes;delete dest.hazards;delete dest.outline;delete dest.source;delete dest.osmId;delete dest.yardages;delete dest.loadedAt;
   if(switching){cur=name;round=newRound();hole=1}
   save();render();if(map)fitGreens();say(`${name}. ${Object.keys(data.greens).length} greens set.`);
  }else{
