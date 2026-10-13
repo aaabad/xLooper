@@ -1,4 +1,4 @@
-// xLooper v0.10 – voice golf caddy PWA
+// xLooper v0.11 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -167,6 +167,7 @@ function paintChrome(){const m=!!opts.metric;
  const hz=nearestHazard(),hel=$('#haz');if(hel)hel.textContent=hz?hz.label+' '+yds(hz.d)+' '+unitShort():'';
  const flag=$('#tpracflag');if(flag)flag.hidden=!(tour&&tour.practice);
  const pb=$('#pracbox');if(pb)pb.style.display=(tour&&tour.practice&&tour.host)?'block':'none';
+ paintVirtual();
  if(opts.sim){const g=$('#gps');if(g)g.textContent=gpsLabel()}}
 function applyLang(){document.documentElement.lang=taglish()?'fil':'en';const sel=$('#lang');if(sel&&sel.value!==(taglish()?'tl':'en'))sel.value=taglish()?'tl':'en';
  $$('[data-en]').forEach(el=>{const s=taglish()?(el.getAttribute('data-tl')??el.getAttribute('data-en')):el.getAttribute('data-en');if(s==null)return;if(el.tagName==='INPUT'||el.tagName==='TEXTAREA')el.placeholder=s;else el.textContent=s});
@@ -387,8 +388,12 @@ async function maybeGolfApi(course){const raw=window.XLOOPER_CONFIG&&window.XLOO
  const list=sj.courses||sj.data||[];const tokens=nameTokens(course.name);const pick=list.find(c=>scoreName(c.course_name||c.club_name||c.name||'',tokens)>0);if(!pick||!pick.id)return;
  const cr=await fetch('https://api.golfcourseapi.com/v1/courses/'+encodeURIComponent(pick.id),{headers,signal:AbortSignal.timeout(8000)});if(!cr.ok)return;const cj=await cr.json();const body=cj.course||cj;
  const sets=[].concat((body.tees&&body.tees.male)||[],(body.tees&&body.tees.female)||[]);sets.sort((a,b)=>((b.holes&&b.holes.length)||0)-((a.holes&&a.holes.length)||0));
- const holes=sets[0]&&sets[0].holes;if(!holes||holes.length<9)return;const yards=[];
- for(let i=0;i<Math.min(18,holes.length);i++){const par=+holes[i].par;if(par>=3&&par<=6)course.pars[i]=par;const y=+holes[i].yardage;yards[i]=y>0?Math.round(y):0}course.yardages=yards}
+ const tee=sets[0],holes=tee&&tee.holes;if(!holes||holes.length<9)return;const yards=[],si=[];
+ for(let i=0;i<Math.min(18,holes.length);i++){const par=+holes[i].par;if(par>=3&&par<=6)course.pars[i]=par;const y=+holes[i].yardage;yards[i]=y>0?Math.round(y):0;const hv=+(holes[i].handicap??holes[i].handicap_index??holes[i].stroke_index);si[i]=hv>=1&&hv<=18?Math.round(hv):0}
+ course.yardages=yards;if(si.some(n=>n>=1))course.si=si;
+ const rating=+(tee.course_rating??tee.rating),slope=+(tee.slope_rating??tee.slope);
+ if(isFinite(rating)&&rating>=50&&rating<=90)course.rating=Math.round(rating*10)/10;
+ if(isFinite(slope)&&slope>=55&&slope<=155)course.slope=Math.round(slope)}
 let pendingLoad=null,splitSig='';
 function layoutLabel(facility,group,twice){const base=String(facility||'Course').replace(/\s+/g,' ').trim();const tail=group&&group.name?group.name:'';let name=tail?base+' - '+tail:base;if(twice)name+=' ×2';return name.replace(/[<>]/g,'').trim().slice(0,60)||'Course'}
 function holeHas(c,h){const g=c&&c.greens&&(c.greens[h]||c.greens[String(h)]);const line=c&&c.holes&&(c.holes[h]||c.holes[String(h)]);return !!(Array.isArray(g)&&g.length>=2)||!!(line&&line.line&&line.line.length>=2)}
@@ -507,8 +512,12 @@ function packCourse(c,name){
  for(let h=1;h<=18;h++){const g=c?.greens?.[h]??c?.greens?.[String(h)];if(!Array.isArray(g)||g.length<2)continue;const lat=r6(g[0]),lng=r6(g[1]);if(lat>=-90&&lat<=90&&lng>=-180&&lng<=180)greens[h]=[lat,lng]}
  const shapes=[];
  for(const s of c?.shapes||[]){const hole=+s.hole;if(!(hole>=1&&hole<=18)||!Array.isArray(s.pts))continue;let pts=s.pts.filter(p=>Array.isArray(p)&&p.length>=2).map(p=>[r6(p[0]),r6(p[1])]).filter(p=>p[0]>=-90&&p[0]<=90&&p[1]>=-180&&p[1]<=180);if(pts.length>24){const step=pts.length/24;pts=Array.from({length:24},(_,i)=>pts[Math.min(pts.length-1,Math.floor(i*step))])}if(pts.length>=3)shapes.push({hole,kind:'green',pts});if(shapes.length>=18)break}
- return {v:1,name:String(name||'Course').replace(/[<>]/g,'').trim().slice(0,40)||'Course',pars,greens,shapes};
-}
+ const packed={v:1,name:String(name||'Course').replace(/[<>]/g,'').trim().slice(0,40)||'Course',pars,greens,shapes};
+ const rating=+c?.rating,slope=+c?.slope;
+ if(isFinite(rating)&&rating>=50&&rating<=90)packed.rating=Math.round(rating*10)/10;
+ if(isFinite(slope)&&slope>=55&&slope<=155)packed.slope=Math.round(slope);
+ if(Array.isArray(c?.si)&&c.si.some(n=>+n>=1&&+n<=18))packed.si=c.si.slice(0,18).map(n=>{const v=Math.round(+n);return v>=1&&v<=18?v:0});
+ return packed}
 function unpackCourse(msg){if(!msg||msg.v!==1||typeof msg.name!=='string'||!Array.isArray(msg.pars))return null;return packCourse(msg,msg.name)}
 async function encodeCache(obj){
  const json=new TextEncoder().encode(JSON.stringify(obj));
@@ -558,6 +567,7 @@ function importCourse(mode){
   if(switching&&totals().n&&!confirm('Switch course? Current round card stays saved only if you Finish it first.'))return;
   const dest=courses[name]=courses[name]||{pars:Array(18).fill(4),greens:{},shapes:[]};
   dest.pars=data.pars.slice();dest.greens={};for(const[h,g]of Object.entries(data.greens))dest.greens[h]=[g[0],g[1]];
+  if(isFinite(+data.rating))dest.rating=+data.rating;if(isFinite(+data.slope))dest.slope=+data.slope;if(Array.isArray(data.si))dest.si=data.si.slice(0,18).map(Number);
   dest.shapes=data.shapes.map(s=>({hole:s.hole,kind:s.kind,pts:s.pts.map(p=>[p[0],p[1]])}));
   delete dest.tees;delete dest.holes;delete dest.hazards;delete dest.outline;delete dest.source;delete dest.osmId;delete dest.yardages;delete dest.loadedAt;
   if(switching){cur=name;round=newRound();hole=1}
@@ -619,21 +629,82 @@ const NTFY='https://ntfy.sh/';
 function topicFor(code,practice){return ((practice!=null?practice:!!(tour&&tour.practice))?'xlooper-practice-':'xlooper-')+String(code||'').toLowerCase()}
 const pub=(code,ev,as,practice)=>fetch(NTFY+topicFor(code,practice!=null?!!practice:!!(tour&&tour.practice)),{method:'POST',body:JSON.stringify({...ev,id:as||myId,ts:Date.now()})}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()});
 let es,seen=new Set();
+let virtKey='';
+function todayKey(d){const x=d||new Date();return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0')}
+function addDaysKey(n){const x=new Date();x.setHours(12,0,0,0);x.setDate(x.getDate()+n);return todayKey(x)}
+function coursePar(pars){const p=Array.isArray(pars)?pars:[];let s=0,n=0;for(let i=0;i<18;i++){const v=+p[i];if(v>=3&&v<=6){s+=v;n++}else s+=4}return n?s:72}
+function playingHandicap(index,slope,rating,par,allowance,maxIndex){
+ let idx=+index;if(!isFinite(idx))return null;
+ if(maxIndex!=null&&maxIndex!==''&&isFinite(+maxIndex))idx=Math.min(idx,+maxIndex);
+ const allow=isFinite(+allowance)?+allowance:100;
+ const sl=slope==null||slope===''?NaN:+slope,rt=rating==null||rating===''?NaN:+rating;
+ const has=isFinite(sl)&&sl>0&&isFinite(rt);
+ if(!has)return {course:idx,playing:Math.round(idx*allow/100),approx:true};
+ const ch=Math.round(idx*(sl/113)+(rt-(isFinite(+par)?+par:72)));
+ return {course:ch,playing:Math.round(ch*allow/100),approx:false};
+}
+function strokeIndex(si,hole){const v=si&&(+si[hole-1]||+si[String(hole)]);return v>=1&&v<=18?v:hole}
+function strokesOn(playing,hole,si){
+ const h=Math.round(+playing||0),idx=strokeIndex(si,hole);
+ if(h>=0){const extra=h%18;return Math.floor(h/18)+(idx<=extra?1:0)}
+ const give=-h,extra=give%18,easiest=19-idx;return -(Math.floor(give/18)+(easiest<=extra?1:0));
+}
+function stablefordPoints(netToPar){const p=2-(+netToPar||0);return p<0?0:p>5?5:p}
+function playerRow(p,format,allowance,maxIndex,fallbackPars){
+ const pars=(Array.isArray(p.pars)&&p.pars.length)?p.pars:(fallbackPars||Array(18).fill(4));
+ const hcp=playingHandicap(p.index,p.slope,p.rating,coursePar(pars),allowance,maxIndex);
+ const hs=Object.entries(p.scores||{}).filter(([,v])=>+v>0);
+ let gross=0,grossToPar=0,strokes=0,points=0;
+ for(const[h,v]of hs){const hn=+h,sc=+v,pr=+pars[hn-1]||4,gtp=sc-pr,st=hcp?strokesOn(hcp.playing,hn,p.si):0;
+  gross+=sc;grossToPar+=gtp;strokes+=st;points+=stablefordPoints(gtp-st)}
+ return {n:p.name||'',course:p.course||'',thru:hs.length,gross,grossToPar,net:gross-strokes,netToPar:grossToPar-strokes,points,playing:hcp&&hcp.playing,attested:!!p.attestedBy,approx:!!(hcp&&hcp.approx)};
+}
+function sortRows(rows,format){const key=format==='stableford'?(a,b)=>b.points-a.points:format==='gross'?(a,b)=>a.grossToPar-b.grossToPar:(a,b)=>a.netToPar-b.netToPar;
+ return rows.sort((a,b)=>(b.thru>0)-(a.thru>0)||key(a,b)||b.thru-a.thru||String(a.n).localeCompare(String(b.n)))}
+function virtualFields(src){const o={virtual:true,format:src.format==='gross'||src.format==='stableford'?src.format:'net',start:src.start||todayKey(),end:src.end||addDaysKey(6),allowance:isFinite(+src.allowance)?+src.allowance:100};
+ if(src.maxIndex!=null&&src.maxIndex!==''&&isFinite(+src.maxIndex))o.maxIndex=+src.maxIndex;return o}
+function copyPlayerMeta(p,ev){
+ if(ev.course)p.course=String(ev.course).slice(0,60);
+ if(Array.isArray(ev.pars))p.pars=ev.pars.slice(0,18).map(n=>+n||4);
+ if(ev.rating!=null&&ev.rating!==''&&isFinite(+ev.rating))p.rating=+ev.rating;
+ if(ev.slope!=null&&ev.slope!==''&&isFinite(+ev.slope))p.slope=+ev.slope;
+ if(ev.index!=null&&ev.index!==''&&isFinite(+ev.index))p.index=+ev.index;
+ if(Array.isArray(ev.si))p.si=ev.si.slice(0,18).map(n=>+n||0);
+}
 function apply(ev){if(!tstate)return;const n=String(ev.name||ev.from||'').slice(0,24);
- if(ev.t==='info'){tstate.name=String(ev.title||'xLooper Cup').slice(0,40);if(Array.isArray(ev.pars)&&!tstate.parsSet){tstate.pars=ev.pars.slice(0,18).map(Number);tstate.parsSet=1;if(tour&&!tour.pars){tour.pars=tstate.pars;C().pars=tstate.pars.slice();save();render()}}}
- else if(ev.t==='join'&&ev.id){const p=tstate.players[ev.id]=tstate.players[ev.id]||{name:n,scores:{}};if(n)p.name=n}
- else if(ev.t==='score'&&ev.id){const p=tstate.players[ev.id]=tstate.players[ev.id]||{name:n,scores:{}};if(n)p.name=n;const h=+ev.hole;if(h>=1&&h<=18){if(+ev.strokes)p.scores[h]=Math.min(15,+ev.strokes);else delete p.scores[h]}}
+ if(ev.t==='info'){tstate.name=String(ev.title||'xLooper Cup').slice(0,40);
+  if(ev.virtual)tstate.virtual=true;if(ev.format)tstate.format=ev.format;if(ev.start)tstate.start=String(ev.start).slice(0,10);if(ev.end)tstate.end=String(ev.end).slice(0,10);
+  if(ev.allowance!=null&&ev.allowance!==''&&isFinite(+ev.allowance))tstate.allowance=+ev.allowance;
+  if(ev.maxIndex!=null&&ev.maxIndex!==''&&isFinite(+ev.maxIndex))tstate.maxIndex=+ev.maxIndex;
+  if(tour){if(ev.virtual)tour.virtual=true;if(ev.format)tour.format=ev.format;if(ev.start)tour.start=String(ev.start).slice(0,10);if(ev.end)tour.end=String(ev.end).slice(0,10);
+   if(ev.allowance!=null&&ev.allowance!==''&&isFinite(+ev.allowance))tour.allowance=+ev.allowance;
+   if(ev.maxIndex!=null&&ev.maxIndex!==''&&isFinite(+ev.maxIndex))tour.maxIndex=+ev.maxIndex;if(ev.virtual)tstate.virtual=true}
+  if(Array.isArray(ev.pars)&&!tstate.parsSet){tstate.pars=ev.pars.slice(0,18).map(n=>+n||4);tstate.parsSet=1;if(tour&&!tour.pars){tour.pars=tstate.pars.slice();if(!tstate.virtual&&!tour.virtual){C().pars=tstate.pars.slice();save();render()}else save()}}}
+ else if(ev.t==='join'&&ev.id){const p=tstate.players[ev.id]=tstate.players[ev.id]||{name:n,scores:{}};if(n)p.name=n;copyPlayerMeta(p,ev)}
+ else if((ev.t==='score'||ev.t==='player')&&ev.id){const p=tstate.players[ev.id]=tstate.players[ev.id]||{name:n,scores:{}};if(n)p.name=n;copyPlayerMeta(p,ev);
+  if(ev.t==='score'){const h=+ev.hole;if(h>=1&&h<=18){if(+ev.strokes)p.scores[h]=Math.min(15,+ev.strokes);else delete p.scores[h]}}}
+ else if(ev.t==='attest'&&ev.playerId){if(ev.id&&ev.id===ev.playerId)return;const p=tstate.players[ev.playerId];if(!p)return;p.attestedBy=String(ev.by||ev.name||'partner').slice(0,24)}
  else if(ev.t==='msg'&&ev.text){msgs.push({from:n||'?',text:String(ev.text).slice(0,280),ts:ev.ts||Date.now(),ann:!!ev.ann});msgs=msgs.slice(-200);return 'msg'}}
 function connect(){if(!tour)return;$('#tjoin').style.display='none';$('#tin').style.display='block';$('#tcd').textContent=tour.code;es?.close();
- tstate={name:tour.title||'Tournament',pars:tour.pars||C().pars,players:{},parsSet:!!tour.pars};msgs=[];seen=new Set();let live=false;
- $('#ttitle').textContent=tstate.name;$('#tstat').textContent='Connecting…';
+ tstate={name:tour.title||'Tournament',pars:(tour.pars||C().pars).slice(),players:{},parsSet:!!tour.pars,virtual:!!tour.virtual,format:tour.format||'net',start:tour.start||'',end:tour.end||'',allowance:tour.allowance!=null?+tour.allowance:100,maxIndex:tour.maxIndex!=null&&tour.maxIndex!==''?+tour.maxIndex:null};msgs=[];seen=new Set();let live=false;
+ $('#ttitle').textContent=tstate.name;$('#tstat').textContent='Connecting…';paintVirtual();
  es=new EventSource(NTFY+topicFor(tour.code,!!tour.practice)+'/sse?since=all');
  es.addEventListener('open',()=>{live=true;$('#tstat').textContent='Live ✓ (ntfy.sh · ~12h history)'});
  es.onmessage=e=>{let d,ev;try{d=JSON.parse(e.data);if(d.event!=='message'||seen.has(d.id))return;seen.add(d.id);ev=JSON.parse(d.message)}catch{return}
-  const k=apply(ev);$('#ttitle').textContent=tstate.name;drawLB();drawMsgs();if(k==='msg'&&live&&opts.autoread&&ev.id!==myId&&Date.now()-(ev.ts||0)<6e4)readMsgs(false)};
+  const k=apply(ev);$('#ttitle').textContent=tstate.name;paintVirtual();drawLB();drawMsgs();if(k==='msg'&&live&&opts.autoread&&ev.id!==myId&&Date.now()-(ev.ts||0)<6e4)readMsgs(false)};
  es.onerror=()=>$('#tstat').textContent='Reconnecting… (scores still save locally)'}
-function drawLB(){if(!tstate)return;const pars=tstate.pars,rows=Object.values(tstate.players).map(p=>{const hs=Object.entries(p.scores);const s=hs.reduce((a,[,v])=>a+v,0),pr=hs.reduce((a,[h])=>a+(pars[h-1]||4),0);return{n:p.name,s,rel:s-pr,thru:hs.length}}).sort((a,b)=>(b.thru>0)-(a.thru>0)||a.rel-b.rel||b.thru-a.thru);
- $('#lb').innerHTML='<tr><th>#</th><th>Player</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>'+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${esc(r.n)}</td><td><b>${r.thru?relS(r.rel):'-'}</b></td><td>${r.thru}</td><td>${r.s||''}</td></tr>`).join('')}
+function drawLB(){if(!tstate)return;
+ if(!tstate.virtual){const pars=tstate.pars,rows=Object.values(tstate.players).map(p=>{const hs=Object.entries(p.scores);const s=hs.reduce((a,[,v])=>a+v,0),pr=hs.reduce((a,[h])=>a+(pars[h-1]||4),0);return{n:p.name,s,rel:s-pr,thru:hs.length}}).sort((a,b)=>(b.thru>0)-(a.thru>0)||a.rel-b.rel||b.thru-a.thru);
+  $('#lb').innerHTML='<tr><th>#</th><th>Player</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>'+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${esc(r.n)}</td><td><b>${r.thru?relS(r.rel):'-'}</b></td><td>${r.thru}</td><td>${r.s||''}</td></tr>`).join('');return}
+ const fmt=tstate.format==='gross'||tstate.format==='stableford'?tstate.format:'net';
+ const rows=sortRows(Object.values(tstate.players).map(p=>playerRow(p,fmt,tstate.allowance,tstate.maxIndex,tstate.pars)),fmt);
+ const mark=r=>r.attested?' ✓':'';
+ let head,cell;
+ if(fmt==='stableford'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>Pts</th><th>Thru</th></tr>';cell=r=>`<td><b>${r.thru?r.points:''}</b></td><td>${r.thru}</td>`}
+ else if(fmt==='gross'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.grossToPar):'-'}</b></td><td>${r.thru}</td><td>${r.gross||''}</td>`}
+ else{head='<tr><th>#</th><th>Player</th><th>Course</th><th>Net</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.netToPar):'-'}</b></td><td>${r.thru}</td><td>${r.net||''}</td>`}
+ $('#lb').innerHTML=head+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${esc(r.n)}${mark(r)}</td><td style="text-align:left">${esc(r.course||'')}</td>${cell(r)}</tr>`).join('');
+ drawAttest()}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function drawMsgs(){$('#msgs').innerHTML=msgs.map(m=>`<div class="msg ${m.ann?'ann':''}"><b>${m.ann?'📢 ':''}${esc(m.from)}</b> <small>${new Date(m.ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</small><br>${esc(m.text)}</div>`).join('');$('#msgs').scrollTop=1e9}
 function readMsgs(all){if(!tour)return say(tr('Join a tournament on the Tourney tab first.','Sumali muna sa tournament sa Tourney tab.'));const nw=msgs.filter(m=>m.ts>lastHeard&&m.from!==tour.name);const list=nw.length?nw:(all?msgs.slice(-3):[]);
@@ -643,42 +714,106 @@ function readMsgs(all){if(!tour)return say(tr('Join a tournament on the Tourney 
 async function sendMsg(text,ann){if(!tour)return say(tr('Join a tournament first.','Sumali muna sa tournament.'));const r=await pub(tour.code,{t:'msg',from:tour.name,text:String(text).slice(0,280),ann:!!(ann||$('#mann').checked)}).catch(e=>({error:e.message||'offline'}));say(r.error?tr('Message failed: ','Hindi na-send: ')+r.error:tr('Sent.','Na-send na.'))}
 function voiceMsg(){listen(t=>sendMsg(t),tr('Say your message…','Sabihin ang message…'))}
 function canPost(){if(!tour||round.course!==cur)return false;if(tour.practice)return true;if(round.practice||opts.sim)return !!opts.countSim;return true}
-function postScore(h){if(!canPost())return;pub(tour.code,{t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0},myId,!!tour.practice).catch(()=>{})}
+function inWindow(){if(!tour||!tour.virtual)return true;const t=todayKey();if(tour.start&&t<tour.start)return false;if(tour.end&&t>tour.end)return false;return true}
+function readVirtForm(){const rating=$('#vrating')?$('#vrating').value:'',slope=$('#vslope')?$('#vslope').value:'',index=$('#vindex')?$('#vindex').value:'';
+ return {rating:rating===''||!isFinite(+rating)?null:+rating,slope:slope===''||!isFinite(+slope)?null:+slope,index:index===''||!isFinite(+index)?null:+index}}
+function currentIndex(){const f=$('#vindex')&&tour&&tour.virtual?readVirtForm().index:null;if(f!=null)return f;if(opts.hcpIndex!=null&&opts.hcpIndex!==''&&isFinite(+opts.hcpIndex))return +opts.hcpIndex;return null}
+function myCard(){const c=C(),card={course:cur,pars:(c.pars||[]).slice(0,18).map(n=>+n||4)};
+ if(c.rating!=null&&c.rating!==''&&isFinite(+c.rating))card.rating=+c.rating;
+ if(c.slope!=null&&c.slope!==''&&isFinite(+c.slope))card.slope=+c.slope;
+ if(opts.hcpIndex!=null&&opts.hcpIndex!==''&&isFinite(+opts.hcpIndex))card.index=+opts.hcpIndex;
+ if(Array.isArray(c.si)&&c.si.some(n=>+n>=1))card.si=c.si.slice(0,18).map(n=>+n||0);
+ return card}
+function applyVirtForm(){if(!$('#vrating'))return;const f=readVirtForm(),c=C();
+ if(f.rating!=null)c.rating=f.rating;else delete c.rating;if(f.slope!=null)c.slope=f.slope;else delete c.slope;
+ if(f.index!=null)opts.hcpIndex=f.index;else delete opts.hcpIndex;virtKey='';save()}
+function postScore(h){if(!canPost())return;
+ if(tour.virtual){if(!inWindow())return say(tr('Scores count from '+(tour.start||'')+' through '+(tour.end||'')+'.','Sa '+(tour.start||'')+' hanggang '+(tour.end||'')+' lang ang score.'));
+  const fmt=tour.format||'net';if((fmt==='net'||fmt==='stableford')&&currentIndex()==null)return say(tr('Enter your handicap index on the Tourney tab.','Ilagay ang handicap index sa Tourney tab.'));
+  applyVirtForm();const ev={t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0,...myCard()};if(tstate)apply({...ev,id:myId});drawLB();
+  pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});return}
+ pub(tour.code,{t:'score',name:tour.name,hole:h,strokes:round.holes[h]?.s||0},myId,!!tour.practice).catch(()=>{})}
 function tourCode(){const a=crypto.getRandomValues(new Uint8Array(8)),cs='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return [...a].map(x=>cs[x%cs.length]).join('')}
 async function join(code,name,info,practice){code=String(code||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'');name=String(name||'').trim().slice(0,24);if(!code||!name)return say(tr('Enter your name and the code.','Ilagay ang pangalan at ang code.'));
  const prac=!!practice;
+ const virt=info&&Object.prototype.hasOwnProperty.call(info,'virtual')?!!info.virtual:!!($('#tvirtual')&&$('#tvirtual').checked);
  try{if(info)await pub(code,{t:'info',practice:prac,...info},myId,prac);await pub(code,{t:'join',name},myId,prac)}catch(e){return say(tr('Could not join: ','Hindi maka-join: ')+(e.message||'offline'))}
  if(L('botCode','')!==code){bots=[];P('bots',bots)}
  P('botCode',code);
- tour={code,name,title:info?.title,pars:info?.pars,practice:prac,host:!!info,invites:info?.invites||[]};save();render();connect();for(let h=1;h<=18;h++)if(round.holes[h]?.s)postScore(h);
- say(tr(`Joined ${prac?'practice ':''}${info?.title||'tournament '+code}. Good luck, ${name}.`,`Sumali ka sa ${prac?'practice ':''}${info?.title||'tournament '+code}. Good luck, ${name}.`))}
+ tour={code,name,title:info?.title,pars:info?.pars,practice:prac,host:!!info,invites:info?.invites||[],virtual:virt,format:info?.format||'net',start:info?.start||'',end:info?.end||'',allowance:info?.allowance!=null?+info.allowance:100,maxIndex:info&&info.maxIndex!=null&&info.maxIndex!==''?+info.maxIndex:null};save();render();connect();for(let h=1;h<=18;h++)if(round.holes[h]?.s)postScore(h);
+ say(tr(`Joined ${prac?'practice ':''}${virt?'online ':''}${info?.title||'tournament '+code}. Good luck, ${name}.`,`Sumali ka sa ${prac?'practice ':''}${virt?'online ':''}${info?.title||'tournament '+code}. Good luck, ${name}.`))}
 const BOT_NAMES=['Alex','Blair','Casey','Drew','Eden','Fran','Gray','Harper','Indy','Jules','Kai','Logan'];
 function simScore(par){const r=Math.random();const d=r<0.08?-1:r<0.42?0:r<0.78?1:r<0.93?2:3;return Math.max(1,(par||4)+d)}
 function inviteNames(){const names=Object.values((tstate&&tstate.players)||{}).map(p=>p.name).filter(Boolean);return [...new Set([...(tour&&tour.invites||[]),...names])]}
+function botCard(i){const places=['North Links','South Hills','River Bend','Oak Ridge','Pine Valley','Lake View','Cedar Park','Maple Run'];
+ const pars=Array.from({length:18},(_,h)=>[4,5,3,4,4,4,3,5,4][h%9]);
+ return {course:places[i%places.length],pars,rating:72,slope:113,index:Math.round((8+i*1.5)*10)/10,si:Array.from({length:18},(_,h)=>((h+i)%18)+1)}}
 function addBots(){if(!tour||!tour.practice||!tour.host)return say(tr('Create a practice tournament first.','Gumawa muna ng practice tournament.'));
  const typed=$('#botnames')&&$('#botnames').value.trim();const custom=typed?typed.split(/[,|\n]/).map(s=>s.trim().slice(0,24)).filter(Boolean).slice(0,12):[];
  const n=custom.length||Math.max(1,Math.min(12,+$('#botn').value||1));const used=new Set(bots.map(b=>b.name));const created=[];
- for(let i=0;i<n;i++){const name=custom[i]||BOT_NAMES.find(x=>!used.has(x))||('Player '+(bots.length+1));used.add(name);const id='bot'+Math.random().toString(36).slice(2,10);const b={id,name,scores:{}};bots.push(b);created.push(b);
-  const ev={t:'join',name,id};if(tstate)apply(ev);pub(tour.code,ev,id,true).catch(()=>{})}
+ for(let i=0;i<n;i++){const name=custom[i]||BOT_NAMES.find(x=>!used.has(x))||('Player '+(bots.length+1));used.add(name);const id='bot'+Math.random().toString(36).slice(2,10);
+  const b={id,name,scores:{}};if(tour.virtual)Object.assign(b,botCard(bots.length));bots.push(b);created.push(b);
+  const ev={t:'join',name,id};if(tstate)apply(ev);pub(tour.code,ev,id,true).catch(()=>{});
+  if(tour.virtual){const pev={t:'player',name,id,course:b.course,pars:b.pars,rating:b.rating,slope:b.slope,index:b.index,si:b.si};if(tstate)apply(pev);pub(tour.code,pev,id,true).catch(()=>{})}}
  P('bots',bots);drawLB();if($('#botnames'))$('#botnames').value='';say(tr('Added '+created.map(b=>b.name).join(', ')+'.','Nadagdag sina '+created.map(b=>b.name).join(', ')+'.'))}
 function advanceBots(all){if(!tour||!tour.practice||!tour.host)return say(tr('Practice controls are for the host.','Sa host ang practice controls.'));if(!bots.length)return say(tr('Add simulated players first. Real players can still join.','Magdagdag muna ng simulated players. Pwede pa ring sumali ang totoong players.'));
- const pars=(tstate&&tstate.pars)||C().pars;const step=()=>{let moved=false;for(const b of bots){const played=Object.keys(b.scores).map(Number);const next=(played.length?Math.max(...played):0)+1;if(next>18)continue;const s=simScore(pars[next-1]||4);b.scores[next]=s;const ev={t:'score',name:b.name,hole:next,strokes:s,id:b.id};if(tstate)apply(ev);pub(tour.code,ev,b.id,true).catch(()=>{});moved=true}return moved};
+ const pars=(tstate&&tstate.pars)||C().pars;const step=()=>{let moved=false;for(const b of bots){const played=Object.keys(b.scores).map(Number);const next=(played.length?Math.max(...played):0)+1;if(next>18)continue;const pr=(tour.virtual&&b.pars)?(b.pars[next-1]||4):(pars[next-1]||4);const s=simScore(pr);b.scores[next]=s;
+  const ev={t:'score',name:b.name,hole:next,strokes:s,id:b.id};if(tour.virtual)Object.assign(ev,{course:b.course,pars:b.pars,rating:b.rating,slope:b.slope,index:b.index,si:b.si});if(tstate)apply(ev);pub(tour.code,ev,b.id,true).catch(()=>{});moved=true}return moved};
  if(all){let g=0;while(step()&&g++<18){}}else step();P('bots',bots);drawLB();say(tr(all?'Simulated players finished the round.':'Simulated players advanced one hole.',all?'Tapos na ang simulated players.':'Isang hole ang simulated players.'))}
 async function promoteTour(){if(!tour||!tour.host||!tour.practice)return;const invites=inviteNames();const title=tour.title||(tstate&&tstate.name)||'Tournament';const pars=(tour.pars||C().pars).slice();
+ const info={t:'info',title,pars,practice:false};if(tour.virtual)Object.assign(info,virtualFields(tour));
  tour.practice=false;tour.title=title;tour.pars=pars;tour.invites=invites;save();
- try{await pub(tour.code,{t:'info',title,pars,practice:false},myId,false);await pub(tour.code,{t:'join',name:tour.name},myId,false);await pub(tour.code,{t:'msg',from:tour.name,text:'Promoted to a real tournament. Practice scores stayed on the practice board.'+(invites.length?' Invited: '+invites.join(', '):''),ann:true},myId,false)}
+ try{await pub(tour.code,info,myId,false);await pub(tour.code,{t:'join',name:tour.name},myId,false);await pub(tour.code,{t:'msg',from:tour.name,text:'Promoted to a real tournament. Practice scores stayed on the practice board.'+(invites.length?' Invited: '+invites.join(', '):''),ann:true},myId,false)}
  catch(e){tour.practice=true;save();return say(tr('Could not promote: ','Hindi ma-promote: ')+(e.message||'offline'))}
  connect();render();say(tr('Promoted to a real tournament. Same code. Practice scores stayed on the practice board.','Real tournament na. Parehong code. Nasa practice board ang practice scores.'))}
 async function freshReal(){if(!tour||!tour.host)return;const invites=inviteNames();const title=tour.title||(tstate&&tstate.name)||(cur+' Cup');const pars=(tour.pars||C().pars).slice();const nm=tour.name;const code=tourCode();
- await join(code,nm,{title,pars,invites},false);
+ const info={title,pars,invites};if(tour.virtual)Object.assign(info,virtualFields(tour));
+ await join(code,nm,info,false);
  try{if(invites.length)await pub(code,{t:'msg',from:nm,text:'You are invited: '+invites.join(', '),ann:true},myId,false)}catch{}}
+function paintHcp(){const out=$('#vhcpout');if(!out||!tour||!tour.virtual)return;const f=readVirtForm();
+ if(f.index==null){out.textContent=tr('Enter a handicap index.','Ilagay ang handicap index.');return}
+ const h=playingHandicap(f.index,f.slope,f.rating,coursePar(C().pars),tour.allowance,tour.maxIndex);if(!h){out.textContent='';return}
+ const note=h.approx?tr(' No rating or slope, so the index is the course handicap.',' Walang rating o slope, kaya ang index ang course handicap.'):'';
+ out.textContent=tr('Course handicap '+h.course+' · playing '+h.playing+'.'+note,'Course handicap '+h.course+' · playing '+h.playing+'.'+note)}
+function fillVirtInputs(){const c=C();const key=cur+'|'+(c.rating??'')+'|'+(c.slope??'')+'|'+(opts.hcpIndex??'');if(key===virtKey)return;
+ const ae=document.activeElement;if(ae&&(ae.id==='vrating'||ae.id==='vslope'||ae.id==='vindex'))return;virtKey=key;
+ if($('#vrating'))$('#vrating').value=c.rating!=null&&c.rating!==''?c.rating:'';
+ if($('#vslope'))$('#vslope').value=c.slope!=null&&c.slope!==''?c.slope:'';
+ if($('#vindex'))$('#vindex').value=opts.hcpIndex!=null&&opts.hcpIndex!==''?opts.hcpIndex:''}
+function paintVirtual(){const on=!!(tour&&tour.virtual);const flag=$('#vflag');if(flag)flag.hidden=!on;const box=$('#virtbox');if(box)box.style.display=on?'block':'none';if(!on)return;
+ const sel=$('#vcourse');if(sel){const keys=Object.keys(courses),sig=keys.join('\n')+'|'+cur;if(sel.dataset.sig!==sig){sel.innerHTML=keys.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');sel.dataset.sig=sig;sel.value=cur}}
+ const meta=$('#vmeta');if(meta){const fmt=tour.format==='gross'?'Stroke play, gross':tour.format==='stableford'?'Stableford':'Stroke play, net';const allow=tour.allowance!=null?tour.allowance:100;
+  meta.textContent=fmt+' · '+(tour.start||'')+' – '+(tour.end||'')+' · '+allow+'%'+(tour.maxIndex!=null&&tour.maxIndex!==''?' · max '+tour.maxIndex:'')}
+ fillVirtInputs();paintHcp()}
+function drawAttest(){const el=$('#vattest');if(!el)return;if(!tstate||!tour||!tour.virtual){el.innerHTML='';return}
+ const others=Object.entries(tstate.players).filter(([id,p])=>id!==myId&&p.name);
+ el.innerHTML=others.map(([id,p])=>`<div class="row" style="align-items:center"><span style="flex:2">${esc(p.name)}${p.course?' · '+esc(p.course):''}${p.attestedBy?' ✓ '+esc(p.attestedBy):''}</span><button type="button" class="b b2" data-attest="${esc(id)}" style="flex:0 0 auto;min-height:44px;font-size:16px;padding:8px 12px">Confirm</button></div>`).join('')||'<small>'+esc(tr('No other cards to attest yet.','Wala pang ibang card.'))+'</small>'}
+function saveVirtCourse(){if(!tour||!tour.virtual)return;applyVirtForm();paintHcp();
+ const ev={t:'player',name:tour.name,...myCard()};if(tstate)apply({...ev,id:myId});drawLB();
+ pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});say(tr('Course handicap saved.','Naka-save ang course handicap.'))}
+function askAttest(){if(!tour)return say(tr('Join a tournament first.','Sumali muna sa tournament.'));sendMsg((tour.name||'A player')+' asks a playing partner to attest the card.',true)}
 $('#tj').onclick=()=>join($('#tcode').value,$('#tname').value,null,!!($('#tpractice')&&$('#tpractice').checked));
-$('#tc').onclick=()=>{const nm=$('#tname').value.trim();if(!nm)return say(tr('Enter your name first.','Ilagay muna ang pangalan mo.'));join(tourCode(),nm,{title:($('#tnew').value||cur+' Cup').slice(0,40),pars:C().pars.slice()},!!($('#tmakePractice')&&$('#tmakePractice').checked))};
+$('#tvirtual').onchange=()=>{const on=$('#tvirtual').checked;const box=$('#tvirtualbox');if(box)box.style.display=on?'block':'none';
+ if(on){if($('#tstart')&&!$('#tstart').value)$('#tstart').value=todayKey();if($('#tend')&&!$('#tend').value)$('#tend').value=addDaysKey(6)}};
+$('#tc').onclick=()=>{const nm=$('#tname').value.trim();if(!nm)return say(tr('Enter your name first.','Ilagay muna ang pangalan mo.'));
+ const virtual=!!($('#tvirtual')&&$('#tvirtual').checked);
+ const info={title:($('#tnew').value||cur+' Cup').slice(0,40),pars:C().pars.slice()};
+ if(virtual){const start=$('#tstart')?$('#tstart').value:'',end=$('#tend')?$('#tend').value:'';if(start&&end&&end<start)return say(tr('The end date is before the start.','Mas maaga ang wakas kaysa simula.'));
+  Object.assign(info,virtualFields({format:$('#tformat')?$('#tformat').value:'net',start:start||todayKey(),end:end||addDaysKey(6),allowance:$('#tallow')?+$('#tallow').value:100,maxIndex:$('#tmax')?$('#tmax').value:''}))}
+ join(tourCode(),nm,info,!!($('#tmakePractice')&&$('#tmakePractice').checked))};
 $('#addbots').onclick=addBots;$('#adv1').onclick=()=>advanceBots(false);$('#playall').onclick=()=>advanceBots(true);$('#promote').onclick=()=>promoteTour();$('#freshreal').onclick=()=>freshReal();
 $('#msend').onclick=()=>{const t=$('#mtxt').value.trim();if(t){sendMsg(t);$('#mtxt').value=''}};$('#mread').onclick=()=>readMsgs(true);$('#mvoice').onclick=voiceMsg;
-$('#leave').onclick=()=>{tour=null;es?.close();save();$('#tjoin').style.display='block';$('#tin').style.display='none';const pb=$('#pracbox');if(pb)pb.style.display='none';const flag=$('#tpracflag');if(flag)flag.hidden=true};
-$('#share').onclick=()=>{if(!tour)return;const u=location.origin+location.pathname+'?t='+tour.code+(tour.practice?'&p=1':'');navigator.share?navigator.share({title:tour.practice?'Join my xLooper practice tournament':'Join my xLooper tournament',text:(tour.practice?'Practice tournament code ':'Tournament code ')+tour.code,url:u}).catch(()=>{}):(navigator.clipboard.writeText(u),say(tr('Link copied.','Na-copy ang link.')))};
+$('#vsave').onclick=saveVirtCourse;$('#vask').onclick=askAttest;
+for(const id of ['vrating','vslope','vindex']){const el=$('#'+id);if(el)el.oninput=paintHcp}
+$('#vcourse').onchange=()=>{const next=$('#vcourse').value;if(!next||next===cur||!courses[next])return;
+ if(totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.'))){$('#vcourse').value=cur;return}
+ cur=next;round=newRound();hole=1;virtKey='';save();render();if(map)fitGreens()};
+$('#vattest').onclick=e=>{const b=e.target.closest('[data-attest]');if(!b||!tour)return;const playerId=b.getAttribute('data-attest');if(!playerId||playerId===myId)return;
+ const ev={t:'attest',playerId,by:tour.name,name:tour.name};if(tstate)apply({...ev,id:myId});drawLB();pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});say(tr('Card attested.','Na-attest na ang card.'))};
+$('#leave').onclick=()=>{tour=null;es?.close();save();$('#tjoin').style.display='block';$('#tin').style.display='none';const pb=$('#pracbox');if(pb)pb.style.display='none';const flag=$('#tpracflag');if(flag)flag.hidden=true;const vf=$('#vflag');if(vf)vf.hidden=true;const vb=$('#virtbox');if(vb)vb.style.display='none'};
+$('#share').onclick=()=>{if(!tour)return;const u=location.origin+location.pathname+'?t='+tour.code+(tour.practice?'&p=1':'')+(tour.virtual?'&v=1':'');const title=tour.practice?'Join my xLooper practice tournament':tour.virtual?'Join my xLooper online tournament':'Join my xLooper tournament';navigator.share?navigator.share({title,text:(tour.practice?'Practice tournament code ':'Tournament code ')+tour.code,url:u}).catch(()=>{}):(navigator.clipboard.writeText(u),say(tr('Link copied.','Na-copy ang link.')))};
 const qparams=new URLSearchParams(location.search);const qt=qparams.get('t');if(qparams.get('p')==='1'){const box=$('#tpractice');if(box)box.checked=true}
+if(qparams.get('v')==='1'){const box=$('#tvirtual');if(box)box.checked=true;const vb=$('#tvirtualbox');if(vb)vb.style.display='block';if($('#tstart')&&!$('#tstart').value)$('#tstart').value=todayKey();if($('#tend')&&!$('#tend').value)$('#tend').value=addDaysKey(6)}
 if(qt){$('#tcode').value=qt;if(!tour||tour.code!==qt.toUpperCase()){$$('nav button')[3].click();$('#tname').focus()}}
 const qCourse=new URLSearchParams(location.search).get('course');if(qCourse)previewCourse(location.search+location.hash);
 $('#tname').value=tour?.name||L('pname','');$('#tname').onchange=e=>P('pname',e.target.value);

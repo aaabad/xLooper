@@ -43,6 +43,7 @@ small{color:#9bb}
 .badge{display:inline-block;background:#ffd23f;color:#06210f;border-radius:8px;padding:1px 8px;font-size:14px;font-weight:800;margin-left:6px}
 #simban{flex:none;background:#c62828;color:#fff;text-align:center;font-weight:900;letter-spacing:.22em;font-size:20px;padding:8px 12px}
 #simban[hidden],#unitask[hidden],#simbox[hidden],#haz:empty{display:none}
+#vhcpout{color:#9be564;font-weight:800;margin:6px 0}
 label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
 </style></head><body>
 <button type="button" id="upd" hidden>New version, tap to refresh</button>
@@ -109,15 +110,39 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
  <small data-en="Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them." data-tl="Papalitan ang GPS para makapag-practice sa bahay. Practice ang round maliban kung i-save mo.">Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them.</small>
  <label id="countSimLbl" class="check" style="display:none"><input type="checkbox" id="countSim" style="width:auto"> <span data-en="Count simulated scores on a real tournament" data-tl="Bilangin ang simulation sa totoong tournament">Count simulated scores on a real tournament</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.10 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.11 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)">
  <label class="check"><input type="checkbox" id="tpractice" style="width:auto"> <span data-en="Practice code (dry run)" data-tl="Practice code (dry run)">Practice code (dry run)</span></label>
  <div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
  <label class="check"><input type="checkbox" id="tmakePractice" style="width:auto"> <span data-en="Create as PRACTICE" data-tl="Gawing PRACTICE">Create as PRACTICE</span></label>
+ <label class="check"><input type="checkbox" id="tvirtual" style="width:auto"> <span data-en="Online (each player, own course)" data-tl="Online (sariling course bawat player)">Online (each player, own course)</span></label>
+ <div id="tvirtualbox" style="display:none">
+  <label for="tformat" data-en="Format" data-tl="Format">Format</label>
+  <select id="tformat" aria-label="Format">
+   <option value="net">Stroke play, net</option>
+   <option value="gross">Stroke play, gross</option>
+   <option value="stableford">Stableford</option>
+  </select>
+  <div class="row"><input id="tstart" type="date" aria-label="Start date"><input id="tend" type="date" aria-label="End date"></div>
+  <label for="tallow" data-en="Handicap allowance" data-tl="Handicap allowance">Handicap allowance</label>
+  <select id="tallow" aria-label="Handicap allowance"><option value="100">100%</option><option value="95">95%</option><option value="90">90%</option><option value="85">85%</option></select>
+  <input id="tmax" type="number" min="0" max="54" step="0.1" placeholder="Max handicap index (optional)" data-en="Max handicap index (optional)" data-tl="Max handicap index (optional)">
+  <small data-en="Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). If rating or slope is missing, the index is the course handicap." data-tl="Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). Kung walang rating o slope, ang index ang course handicap.">Course handicap = round(Index × Slope/113 + (Rating − Par)). Playing handicap = round(Course handicap × allowance). If rating or slope is missing, the index is the course handicap.</small>
+ </div>
  <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div>
- <small data-en="Create uses the current course pars. A practice event has its own board. Real players join with the practice link. Simulated players are optional." data-tl="Ginagamit ang pars ng course. May sariling board ang practice. Pwedeng sumali ang totoong players sa practice link. Opsyonal ang simulated players.">Create uses the current course pars. A practice event has its own board. Real players join with the practice link. Simulated players are optional.</small></div>
- <div id="tin" style="display:none"><div class="card"><b id="tpracflag" hidden style="color:#ffd23f;letter-spacing:.12em">PRACTICE</b> <b id="ttitle"></b> · code <b id="tcd"></b> <button class="b b2" id="share" style="min-height:40px;padding:6px 10px;font-size:16px">Share link</button> <button class="b b2" id="leave" style="min-height:40px;padding:6px 10px;font-size:16px">Leave</button><br><small id="tstat"></small></div>
+ <small data-en="Same-course events use the current pars. Online events let each player bring their own course. A practice event has its own board." data-tl="Ang same-course event ay gumagamit ng kasalukuyang pars. Sa online, sariling course bawat player. May sariling board ang practice.">Same-course events use the current pars. Online events let each player bring their own course. A practice event has its own board.</small></div>
+ <div id="tin" style="display:none"><div class="card"><b id="tpracflag" hidden style="color:#ffd23f;letter-spacing:.12em">PRACTICE</b> <b id="vflag" hidden style="color:#9be564;letter-spacing:.12em">VIRTUAL</b> <b id="ttitle"></b> · code <b id="tcd"></b> <button class="b b2" id="share" style="min-height:40px;padding:6px 10px;font-size:16px">Share link</button> <button class="b b2" id="leave" style="min-height:40px;padding:6px 10px;font-size:16px">Leave</button><br><small id="tstat"></small></div>
+ <div id="virtbox" class="card" style="display:none">
+  <b data-en="Your course" data-tl="Course mo">Your course</b>
+  <div><small id="vmeta"></small></div>
+  <select id="vcourse" aria-label="Your course"></select>
+  <div class="row"><input id="vrating" type="number" step="0.1" min="50" max="90" placeholder="Course rating" data-en="Course rating" data-tl="Course rating"><input id="vslope" type="number" step="1" min="55" max="155" placeholder="Slope" data-en="Slope" data-tl="Slope"></div>
+  <input id="vindex" type="number" step="0.1" min="-10" max="54" placeholder="Handicap index" data-en="Handicap index" data-tl="Handicap index">
+  <div id="vhcpout"></div>
+  <div class="row"><button type="button" class="b b2" id="vsave" style="font-size:16px" data-en="Use this course" data-tl="Gamitin ang course">Use this course</button><button type="button" class="b b2" id="vask" style="font-size:16px" data-en="Ask partner to attest" data-tl="Pahingi ng attest">Ask partner to attest</button></div>
+  <div id="vattest"></div>
+ </div>
  <div id="pracbox" class="card" style="display:none">
   <b style="color:#ffd23f;letter-spacing:.12em">PRACTICE</b>
   <p style="margin:6px 0;font-size:16px" data-en="Real players join with the practice link and can use GPS or simulation. Simulated players are optional." data-tl="Pwedeng sumali ang totoong players sa practice link, GPS o simulation. Opsyonal ang simulated players.">Real players join with the practice link and can use GPS or simulation. Simulated players are optional.</p>
