@@ -21,8 +21,10 @@ td input{width:52px;padding:6px;text-align:center}.cur{background:#1d5c33}
 .card{background:#0b3d1e;border-radius:14px;padding:12px;margin:10px 0}#log{color:#ffd23f;min-height:28px;text-align:center}
 .msgs{max-height:40vh;overflow:auto}.msg{padding:6px 0;border-bottom:1px solid #1d5c33}.msg.ann{color:#ffd23f}
 small{color:#9bb}
+#near{border:2px solid #ffd23f}#sharebox input{font-size:14px}
 </style></head><body>
 <header><div class="logo"><b>x</b>Looper</div><div id="gps" style="font-size:15px">GPS…</div></header>
+<div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes">Switch</button><button class="b b2" id="nearno">Not now</button></div></div>
 <section id="s-caddy" class="on">
  <div class="row"><button class="b b2" id="prev">◀</button><div style="text-align:center;flex:2"><div style="font-size:30px;font-weight:800">Hole <span id="hn">1</span></div><small>Par <span id="hp">4</span> · <span id="cname"></span></small></div><button class="b b2" id="next">▶</button></div>
  <div class="big" id="yd">—</div><div class="sub">yards to center <span id="fb"></span></div>
@@ -41,14 +43,17 @@ small{color:#9bb}
  <div class="row"><button class="b b2" id="osm">Load OSM greens</button><button class="b b2" id="center">Center me</button></div>
  <small>Tap the map to set the green center for the current hole (Hole <span id="mh">1</span>). OSM greens: tap one to assign it.</small>
 </section>
-<section id="s-card"><div class="card"><select id="course"></select><div class="row"><input id="newc" placeholder="New course name"><button class="b b2" id="addc" style="flex:0 0 90px">Add</button></div></div>
+<section id="s-card"><div class="card"><select id="course"></select><div class="row"><input id="newc" placeholder="New course name"><button class="b b2" id="addc" style="flex:0 0 90px">Add</button></div>
+ <div class="row"><button class="b b2" id="sharec" style="font-size:17px">Share course</button><button class="b b2" id="getc" style="font-size:17px">Get course from a friend</button></div>
+ <div id="sharebox"></div>
+ <div id="getbox" style="display:none"><div class="row"><input id="coursein" placeholder="Paste code or link"><button class="b" id="coursego" style="flex:0 0 120px;font-size:18px">Preview</button></div><div id="cprev"></div></div></div>
  <div id="tot" class="sub" style="font-size:24px;margin:8px"></div>
  <table id="sc"></table>
  <div class="row"><button class="b" id="fin">Finish & save round</button><button class="b red" id="newr">New round</button></div>
  <h3>History</h3><div id="hist"></div></section>
 <section id="s-clubs"><h3>My distances (carry, yds)</h3><table id="ct"></table><div class="row"><button class="b b2" id="addclub">+ Club</button><button class="b b2" id="resetc">Reset</button></div>
  <div class="card"><label><input type="checkbox" id="autoread" style="width:auto"> Auto-read new tournament messages</label><br><label><input type="checkbox" id="metric" style="width:auto"> Distances in meters</label></div>
- <small>xLooper v0.3 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.4 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)"><div class="row"><input id="tcode" placeholder="Code" style="text-transform:uppercase"><button class="b" id="tj">Join</button></div>
  <div class="row"><input id="tnew" placeholder="New tournament name"><button class="b b2" id="tc">Create</button></div><small>Create uses the current course pars.</small></div>
