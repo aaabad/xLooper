@@ -71,6 +71,14 @@ body.sim small{color:#b7adc9}
 body.sim .sub{color:#cbbfe0}
 #tap{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 58px);transform:translateX(-50%);z-index:1500;background:#ffd23f;color:#06210f;border-radius:14px;padding:10px 16px;font-weight:800;text-align:center;max-width:92vw;box-shadow:0 8px 24px rgba(0,0,0,.45);pointer-events:none}
 #tap[hidden]{display:none}
+#dlprog{background:#06210f;border:2px solid #9be564;border-radius:12px;padding:8px 10px;margin:8px 0}
+#dlprog[hidden],#simneed[hidden],#friendAsk[hidden],#simempty[hidden]{display:none}
+#dlbar{height:12px;background:#1d5c33;border-radius:8px;overflow:hidden;margin-top:6px}
+#dlfill{height:100%;width:0;background:#9be564}
+#simneed{color:#ffd23f;font-weight:800;margin:6px 0}
+.mycourse{display:flex;gap:8px;align-items:stretch;margin:6px 0}
+.mycourse button.b{font-size:16px;min-height:52px;text-align:left;padding:10px 12px}
+.mycourse button.del{flex:0 0 76px;font-size:14px}
 #clubpick{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
 #clubpick button{flex:0 0 auto;width:auto;min-height:44px;font-size:16px;padding:8px 10px}
 #coach{font-size:16px;color:#ffd23f;min-height:1.2em;text-align:center}
@@ -92,6 +100,15 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
 <div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes" data-en="Switch" data-tl="Lipat">Switch</button><button class="b b2" id="nearno" data-en="Not now" data-tl="Huwag muna">Not now</button></div></div>
 <section id="s-caddy" class="on">
  <div class="mode" role="group" aria-label="Play mode"><button type="button" id="modePlay" data-en="Actual play" data-tl="Tunay">Actual play</button><button type="button" id="modeSim" data-en="Simulation (training)" data-tl="Simulation (training)">Simulation (training)</button></div>
+ <div class="card" id="mycourses">
+  <b data-en="My Courses" data-tl="Mga course ko">My Courses</b>
+  <div id="simneed" hidden>Download this course first</div>
+  <div id="friendAsk" hidden></div>
+  <div id="dlprog" hidden><b id="dltext">Saving…</b><div id="dlbar"><div id="dlfill"></div></div></div>
+  <div id="mylist"></div>
+  <small id="myempty" data-en="Download a course once. After that it works with no signal." data-tl="I-download ang course nang isang beses. Pagkatapos, gagana kahit walang signal.">Download a course once. After that it works with no signal.</small>
+  <div class="row"><button type="button" class="b b2" id="dlopen" style="font-size:16px" data-en="Download course" data-tl="I-download ang course">Download course</button><button type="button" class="b b2" id="dlupdate" style="font-size:16px" data-en="Update course" data-tl="I-update ang course">Update course</button></div>
+ </div>
  <div id="unitask" class="card" hidden>
   <b data-en="How should xLooper measure distance?" data-tl="Paano sukatin ang distansya?">How should xLooper measure distance?</b>
   <div class="row"><button type="button" class="b" id="askYd" data-en="Yards" data-tl="Yarda">Yards</button><button type="button" class="b b2" id="askM" data-en="Meters" data-tl="Metro">Meters</button></div>
@@ -107,6 +124,7 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
  <div class="sub" id="haz" style="font-size:18px;color:#ffd23f"></div>
  <div id="simbox" class="card" hidden>
   <small id="trainNote" data-en="You play your own ball. Pick a club, then walk or hit. Empty spots are simulated for pace. A player who joins plays their own ball." data-tl="Ikaw ang tumira. Pumili ng club, tapos lakad o tira. Ang walang tao, sine-simulate. Ang sumali, sila ang tumira.">You play your own ball. Pick a club, then walk or hit. Empty spots are simulated for pace. A player who joins plays their own ball.</small>
+  <div id="simpick"><small data-en="Training courses on this phone" data-tl="Training courses sa phone">Training courses on this phone</small><div id="simlist"></div><small id="simempty" hidden data-en="Download a course first" data-tl="Mag-download muna ng course">Download a course first</small></div>
   <div id="clubpick"></div>
   <div id="coach"></div>
   <div id="flightmini"></div>
@@ -200,7 +218,7 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
  <small data-en="Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them." data-tl="Papalitan ang GPS para makapag-practice sa bahay. Practice ang round maliban kung i-save mo.">Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them.</small>
  <label id="countSimLbl" class="check" style="display:none"><input type="checkbox" id="countSim" style="width:auto"> <span data-en="Count simulated scores on a real tournament" data-tl="Bilangin ang simulation sa totoong tournament">Count simulated scores on a real tournament</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.15 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.16 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)">
  <label class="check"><input type="checkbox" id="tpractice" style="width:auto"> <span data-en="Practice code (dry run)" data-tl="Practice code (dry run)">Practice code (dry run)</span></label>
