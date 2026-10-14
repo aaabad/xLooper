@@ -1,4 +1,4 @@
-// xLooper v0.12 – voice golf caddy PWA
+// xLooper v0.14 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -10,7 +10,7 @@ const hadOpts=localStorage.getItem('xl.opts')!=null;
 let opts=L('opts',{autoread:true,metric:false,lang:'en'});
 if(!opts||typeof opts!=='object')opts={autoread:true,metric:false,lang:'en'};
 if(opts.lang!=='tl')opts.lang='en';
-opts.metric=opts.metric===true; opts.sim=opts.sim===true; opts.countSim=opts.countSim===true;
+opts.metric=opts.metric===true; opts.countSim=opts.countSim===true; opts.sim=false;
 if(!hadOpts)opts.unitsSet=false; else if(opts.unitsSet!==true)opts.unitsSet=true;
 let bots=L('bots',[]); if(!Array.isArray(bots))bots=[];
 let pos=null, acc=null, shot=L('shot',null), lastHeard=L('heard',0), msgs=[], tstate=null;
@@ -21,10 +21,11 @@ let xstate=L('xircle',{opens:0,asks:0,at:0,signup:null});
 if(!xstate||typeof xstate!=='object'||Array.isArray(xstate))xstate={opens:0,asks:0,at:0,signup:null};
 xstate.opens=(+xstate.opens||0)+1;P('xircle',xstate);
 const C=()=>courses[cur], par=h=>C().pars[h-1]||4;
-const save=()=>{P('courses',courses);P('cur',cur);P('round',round);P('hist',hist);P('clubs',clubs);P('hole',hole);P('tour',tour);P('opts',opts);P('shot',shot);P('bots',bots)};
-const newRound=()=>({course:cur,date:new Date().toISOString(),holes:{},practice:!!opts.sim});
+let group=normalizeGroup(L('group',null));
+let auto={on:false,paused:false,speed:'normal',timer:0,gen:0,phase:'intro',hole:1};
+const save=()=>{P('courses',courses);P('cur',cur);P('round',round);P('hist',hist);P('clubs',clubs);P('hole',hole);P('tour',tour);P('opts',opts);P('shot',shot);P('bots',bots);P('group',group)};
+const newRound=()=>{opts.sim=false;auto.gen++;stopAuto(true);group.scores={};group.wolf={};group.bbb={};return {course:cur,date:new Date().toISOString(),holes:{},practice:false}};
 if(!round||round.course!==cur)round=newRound();
-if(opts.sim)round.practice=true;
 // ---------- speech ----------
 function taglish(){return opts.lang==='tl'}
 function tr(en,tl){return taglish()?tl:en}
@@ -125,9 +126,9 @@ function teePoint(h,allowGreen){const c=C();const t=c.tees&&(c.tees[h]||c.tees[S
  const info=c.holes&&(c.holes[h]||c.holes[String(h)]);const line=info&&info.line;if(line&&line.length&&Array.isArray(line[0]))return [+line[0][0],+line[0][1]];return allowGreen?greenAt(h):null}
 function bearingTo(a,b){const y=Math.sin(rad(b[1]-a[1]))*Math.cos(rad(b[0]));const x=Math.cos(rad(a[0]))*Math.sin(rad(b[0]))-Math.sin(rad(a[0]))*Math.cos(rad(b[0]))*Math.cos(rad(b[1]-a[1]));return Math.atan2(y,x)}
 function offsetLL(from,meters,bearing){const d=meters/6371000,lat1=rad(from[0]),lon1=rad(from[1]);const lat2=Math.asin(Math.sin(lat1)*Math.cos(d)+Math.cos(lat1)*Math.sin(d)*Math.cos(bearing));const lon2=lon1+Math.atan2(Math.sin(bearing)*Math.sin(d)*Math.cos(lat1),Math.cos(d)-Math.sin(lat1)*Math.sin(lat2));return [lat2*180/Math.PI,lon2*180/Math.PI]}
-function maybeAutoHole(){if(!opts.sim||!pos||hole>=18)return;const tee=teePoint(hole+1,false),g=greenAt(hole);if(!tee)return;if(dist(pos,tee)<30&&(!g||dist(pos,g)>40)){hole+=1;shot=null;save()}}
+function maybeAutoHole(){if(auto.on||!opts.sim||!pos||hole>=18)return;const tee=teePoint(hole+1,false),g=greenAt(hole);if(!tee)return;if(dist(pos,tee)<30&&(!g||dist(pos,g)>40)){hole+=1;shot=null;save()}}
 function placeSim(ll){if(!ll||!isFinite(+ll[0])||!isFinite(+ll[1]))return;pos=[+ll[0],+ll[1]];acc=3;maybeAutoHole();render();if(me)me.setLatLng(pos);considerNearby()}
-function setSim(on){opts.sim=!!on;if(opts.sim){round.practice=true;save();const t=teePoint(hole,true)||pos;if(t)placeSim(t);else render();say(tr('Simulation on. You are on the tee.','Simulation on. Nasa tee ka.'))}
+function setSim(on){opts.sim=!!on;if(!opts.sim)stopAuto(true);if(opts.sim){round.practice=true;save();const t=teePoint(hole,true)||pos;if(t)placeSim(t);else render();say(tr('Simulation on. You are on the tee.','Simulation on. Nasa tee ka.'))}
  else{if(!totals().n)round.practice=false;save();render();say(tr('Simulation off. Using real GPS.','Simulation off. Totoong GPS na.'))}}
 function moveSim(meters,lateral){if(!pos){const t=teePoint(hole,true);if(!t)return say(tr('No tee on this hole.','Walang tee sa hole na ito.'));placeSim(t)}
  const g=greenAt(hole);let br=g&&dist(pos,g)>=1?bearingTo(pos,g):0;let dest=offsetLL(pos,Math.max(0,meters),br);if(lateral)dest=offsetLL(dest,lateral,br+Math.PI/2);placeSim(dest)}
@@ -137,6 +138,144 @@ function hitSim(){const g=greenAt(hole);if(!g)return say(tr('No green on this ho
  if(carry+jitter>remain)carry=Math.max(1,remain-4);moveSim(Math.max(1,carry+jitter),lateral);say(tr('Hit the '+clubName(c[0])+'.','Tira ng '+c[0]+'.'))}
 function jumpGreen(){const g=greenAt(hole);if(!g)return say(tr('No green on this hole yet.','Wala pang green sa hole na ito.'));placeSim(g);say(tr('On the green.','Nasa green ka na.'))}
 function nextTee(){hole=hole>=18?1:hole+1;shot=null;const t=teePoint(hole,true);if(t)placeSim(t);else{save();render()}sayYardage()}
+function normalizeGroup(g){
+ const players=[{id:'p1',name:'Player 1',hcp:12},{id:'p2',name:'Player 2',hcp:18},{id:'p3',name:'Player 3',hcp:8},{id:'p4',name:'Player 4',hcp:24}];
+ const out={count:1,players,game:{type:'none',stake:5,currency:'$',useHcp:false,presses:false},scores:{},wolf:{},bbb:{}};
+ if(!g||typeof g!=='object')return out;
+ out.count=Math.min(4,Math.max(1,Math.round(+g.count||1)));
+ if(Array.isArray(g.players))g.players.slice(0,4).forEach((p,i)=>{if(!p)return;if(p.name)out.players[i].name=String(p.name).slice(0,24);if(p.hcp!=null&&p.hcp!==''&&isFinite(+p.hcp))out.players[i].hcp=Math.max(-10,Math.min(54,Math.round(+p.hcp)))});
+ const types=['none','skins','nassau','match','stroke','wolf','bbb'];
+ if(g.game&&types.includes(g.game.type))out.game.type=g.game.type;
+ if(g.game&&g.game.stake!=null&&isFinite(+g.game.stake))out.game.stake=Math.max(0,+g.game.stake);
+ if(g.game&&(g.game.currency==='$'||g.game.currency==='₱'))out.game.currency=g.game.currency;
+ if(g.game){out.game.useHcp=!!g.game.useHcp;out.game.presses=!!g.game.presses}
+ if(g.scores&&typeof g.scores==='object')out.scores=g.scores;
+ if(g.wolf&&typeof g.wolf==='object')out.wolf=g.wolf;
+ if(g.bbb&&typeof g.bbb==='object')out.bbb=g.bbb;
+ return out}
+function activePlayers(){return group.players.slice(0,group.count)}
+function pullP1(){group.scores.p1=group.scores.p1||{};for(let h=1;h<=18;h++){const x=round.holes[h];if(x&&x.s)group.scores.p1[h]={s:+x.s,p:+x.p||0};else delete group.scores.p1[h]}}
+function groupModel(){pullP1();const g=group.game;return {type:g.type,stake:g.stake,currency:g.currency,useHcp:g.useHcp,presses:g.presses,players:activePlayers(),scores:group.scores,wolf:group.wolf,bbb:group.bbb}}
+function writeScore(pid,h,s,p){s=+s||0;p=+p||0;if(!group.scores[pid])group.scores[pid]={};if(s>0)group.scores[pid][h]={s,p};else delete group.scores[pid][h];
+ if(pid==='p1'){if(s>0)round.holes[h]={...(round.holes[h]||{}),s,p};else delete round.holes[h]}
+ save();if(pid==='p1'&&s>0)postScore(h)}
+function betSpeech(){if(group.count<2||group.game.type==='none'||!window.XLGames)return '';const r=XLGames.settle(groupModel());
+ const pay=r.transfers.map(t=>t.fromName+' pays '+t.toName+' '+XLGames.money(r.currency,t.amount)).join('. ');
+ return ' '+(pay?pay+'. ':tr('Bets are all square. ','Tabla ang bets. '))+tr('Friendly scorekeeping only. No money is handled.','Friendly scorekeeping lang. Walang pera na hinahawakan.')}
+function standHTML(r,compact){if(!r||group.count<2||group.game.type==='none')return '';
+ const rows=r.rows.map(row=>{const cls=row.amount>0.001?'up':row.amount<-0.001?'down':'';return `<div><b class="${cls}">${hx(row.name)}</b> ${hx(row.detail)} ${Math.abs(row.amount)>0.001?XLGames.money(r.currency,row.amount):'even'}</div>`}).join('');
+ const pay=r.transfers.length?r.transfers.map(t=>`<div>${hx(t.fromName)} pays ${hx(t.toName)} ${XLGames.money(r.currency,t.amount)}</div>`).join(''):'<div>All square</div>';
+ if(compact)return `<b>${hx(r.title)}</b> ${pay}`;
+ const lines=r.lines.slice(-3).map(l=>`<small>${hx(l)}</small>`).join('<br>');
+ return `<b>${hx(r.title)}</b> · ${hx(XLGames.money(group.game.currency,group.game.stake))}${group.game.useHcp?' · net':''}<br>${lines}<br>${rows}<b>Settle up</b>${pay}`}
+function paintGroup(){if(!window.XLGames)return;pullP1();
+ $$('[data-gcount] [data-n]').forEach(b=>b.classList.toggle('on',+b.dataset.n===group.count));
+ $$('[data-prow]').forEach(row=>row.classList.toggle('off',+row.dataset.prow>=group.count));
+ $$('[data-gf="name"]').forEach(el=>{if(el===document.activeElement)return;const v=group.players[+el.dataset.pi].name;if(el.value!==v)el.value=v});
+ $$('[data-gf="hcp"]').forEach(el=>{if(el===document.activeElement)return;const v=String(group.players[+el.dataset.pi].hcp);if(el.value!==v)el.value=v});
+ $$('[data-gg="game"]').forEach(el=>{if(el.value!==group.game.type)el.value=group.game.type});
+ $$('[data-gg="stake"]').forEach(el=>{if(el===document.activeElement)return;if(el.value!==String(group.game.stake))el.value=String(group.game.stake)});
+ $$('[data-gg="currency"]').forEach(el=>{if(el.value!==group.game.currency)el.value=group.game.currency});
+ $$('[data-gg="useHcp"]').forEach(el=>{el.checked=!!group.game.useHcp});
+ $$('[data-gg="presses"]').forEach(el=>{el.checked=!!group.game.presses});
+ $$('.pressrow').forEach(el=>{el.style.display=group.game.type==='nassau'?'':'none'});
+ const table=$('#ggrid');
+ if(table){const ps=activePlayers();if(ps.length<2)table.innerHTML='';else{let h='<tr><th>H</th>'+ps.map(p=>`<th>${hx(p.name)}</th>`).join('')+'</tr>';
+  for(let i=1;i<=18;i++){h+=`<tr class="${i===hole?'cur':''}"><td onclick="go(${i})">${i}</td>`;ps.forEach(p=>{const sc=p.id==='p1'?round.holes[i]:(group.scores[p.id]&&group.scores[p.id][i]);h+=`<td><input type="number" min="1" max="20" data-gs="${p.id}" data-gh="${i}" value="${sc&&sc.s?sc.s:''}" style="width:52px"></td>`});h+='</tr>'}
+  table.innerHTML=h}}
+ paintHoleExtras();
+ const settled=XLGames.settle(groupModel());
+ const full=standHTML(settled,false),short=standHTML(settled,true);
+ const box=$('#gstand');if(box)box.innerHTML=full;
+ const sim=$('#simstand');if(sim)sim.innerHTML=short}
+function paintHoleExtras(){const box=$('#ghole');if(!box||box.contains(document.activeElement))return;const ps=activePlayers(),h=hole;
+ if(group.game.type==='wolf'&&ps.length===4){const wolf=ps[(h-1)%4],cur=group.wolf[h]||{wolf:wolf.id,partner:ps[h%4].id};
+  box.innerHTML=`<div><b>Wolf</b> ${hx(wolf.name)}</div><select data-gw="partner" data-gh="${h}" aria-label="Wolf partner"><option value="" ${cur.partner?'' :'selected'}>Alone</option>${ps.filter(p=>p.id!==wolf.id).map(p=>`<option value="${p.id}" ${cur.partner===p.id?'selected':''}>${hx(p.name)}</option>`).join('')}</select>`}
+ else if(group.game.type==='bbb'&&ps.length>=2){const cur=group.bbb[h]||{};
+  const sel=key=>`<select data-gb="${key}" data-gh="${h}" aria-label="${key}"><option value="">${key}</option>${ps.map(p=>`<option value="${p.id}" ${cur[key]===p.id?'selected':''}>${hx(p.name)}</option>`).join('')}</select>`;
+  box.innerHTML=`<div class="row">${sel('bingo')}${sel('bango')}${sel('bongo')}</div>`}
+ else box.innerHTML=''}
+function paintAuto(){const b=$('#autoPlay'),p=$('#autoPause');
+ if(b){b.setAttribute('data-en',auto.on?'Stop auto':'Auto play');b.setAttribute('data-tl',auto.on?'Tigil auto':'Auto play');b.textContent=tr(b.getAttribute('data-en'),b.getAttribute('data-tl'))}
+ if(p){p.hidden=!auto.on;p.setAttribute('data-en',auto.paused?'Resume':'Pause');p.setAttribute('data-tl',auto.paused?'Tuloy':'Pause');p.textContent=tr(p.getAttribute('data-en'),p.getAttribute('data-tl'))}
+ $$('#autoSpeed button').forEach(btn=>btn.classList.toggle('on',btn.dataset.spd===auto.speed))}
+function stopAuto(silent){const was=auto.on;auto.on=false;auto.paused=false;if(auto.timer)clearTimeout(auto.timer);auto.timer=0;paintAuto();if(was&&!silent)say(tr('Auto play stopped.','Tigil ang auto play.'))}
+function autoTee(h){const g=greenAt(h),t=teePoint(h,false);if(!g)return null;if(t&&dist(t,g)>25)return t;const yards=par(h)===3?165:par(h)===5?490:380;return offsetLL(g,yards*M_PER_YD,Math.PI)}
+function nextPlayable(from){for(let h=from;h<=18;h++)if(greenAt(h))return h;return 0}
+function showPos(ll){if(!ll)return;pos=[+ll[0],+ll[1]];acc=3;if(auto.hole)hole=auto.hole;render();if(me)me.setLatLng(pos)}
+function hitBall(player,st,h){const g=greenAt(h);const remainY=dist(st.pos,g)*1.09361;const skill=Math.min(1,Math.max(0,+player.hcp||0)/40);
+ const chip=remainY<=45,force=st.shots>=6;
+ if(remainY<12||chip||force){st.shots+=1;st.onGreen=true;st.dist=2+Math.random()*(6+skill*12);st.pos=g.slice();if(!st.reachedAt)st.reachedAt=st.shots;return {club:'PW',on:true,left:Math.round(st.dist)}}
+ const club=clubFor(Math.max(41,Math.round(remainY)));const carryMax=club[1]*(1-skill*0.08);const reach=remainY<=carryMax*1.05;const miss=reach&&Math.random()<0.22+skill*0.45;
+ let carryY,on=false;
+ if(reach&&!miss){on=true;carryY=Math.max(1,remainY-(2+Math.random()*(5+skill*10)))}
+ else if(miss)carryY=remainY*(0.72+Math.random()*0.12);
+ else carryY=Math.min(carryMax*(0.9+Math.random()*0.1),Math.max(20,remainY-18));
+ const lateral=(Math.random()-0.5)*(8+skill*28),br=bearingTo(st.pos,g);
+ let dest=offsetLL(st.pos,Math.max(1,carryY)*M_PER_YD,br);dest=offsetLL(dest,lateral*M_PER_YD,br+Math.PI/2);
+ st.shots+=1;
+ if(on){st.onGreen=true;st.pos=g.slice();st.dist=2+Math.random()*(6+skill*10);if(!st.reachedAt)st.reachedAt=st.shots}
+ else{st.pos=dest;st.dist=dist(dest,g)*1.09361;st.onGreen=st.dist<12;if(st.onGreen){st.pos=g.slice();if(!st.reachedAt)st.reachedAt=st.shots}}
+ return {club:club[0],on:st.onGreen,left:Math.round(st.dist)}}
+function choosePutts(player,st){const hcp=Math.max(0,+player.hcp||0),r=Math.random(),close=st.dist<5;
+ if(hcp<8)return r<(close?0.62:0.4)?1:r<0.92?2:3;
+ if(hcp<18)return r<(close?0.45:0.25)?1:r<0.85?2:3;
+ return r<0.18?1:r<0.72?2:3}
+function pickWolf(ps){const wolf=ps[(auto.hole-1)%ps.length];const others=ps.filter(p=>p.id!==wolf.id).slice().sort((a,b)=>auto.st[a.id].dist-auto.st[b.id].dist);
+ const closest=others[0],alone=auto.st[wolf.id].dist<=auto.st[closest.id].dist&&Math.random()<0.4;
+ group.wolf[auto.hole]={wolf:wolf.id,partner:alone?null:closest.id};
+ auto.wolfLine=alone?tr(wolf.name+' is the wolf and goes alone.',wolf.name+' ang wolf, mag-isa.'):tr(wolf.name+' is the wolf, with '+closest.name+'.','Wolf si '+wolf.name+', kasama si '+closest.name+'.')}
+function swingStep(ps){
+ if(auto.phase==='tee'&&auto.idx>=auto.order.length){
+  if(group.game.type==='wolf'&&ps.length===4){pickWolf(ps);auto.phase='wolf';auto.wolfSaid=false;return}
+  auto.phase='away'}
+ if(auto.phase==='wolf'){if(!auto.wolfSaid){auto.wolfSaid=true;say(auto.wolfLine);return}auto.phase='away'}
+ let id;
+ if(auto.phase==='tee')id=auto.order[auto.idx];
+ else{const left=ps.filter(p=>!auto.st[p.id].onGreen);if(!left.length){auto.phase='green';return}
+  id=XLGames.awayOrder(left.map(p=>p.id),Object.fromEntries(left.map(p=>[p.id,auto.st[p.id].dist])))[0]}
+ const p=ps.find(x=>x.id===id),st=auto.st[id];
+ showPos(st.pos);
+ if(p.id==='p1'&&!st.advice){st.advice=true;sayClub();return}
+ const shot=hitBall(p,st,auto.hole);st.advice=false;
+ if(st.onGreen&&!auto.bingo)auto.bingo=p.id;
+ if(st.onGreen)say(tr(p.name+' is on the green.','Nasa green na si '+p.name+'.'));
+ else say(tr(p.name+' hits '+clubName(shot.club)+'. '+shot.left+' '+unit()+' left.', 'Tira ni '+p.name+', '+clubName(shot.club)+'. '+shot.left+' '+unitTl()+' pa.'));
+ if(auto.phase==='tee')auto.idx++}
+function recordHole(ps){const h=auto.hole,prev={};let bongo=ps[0].id,bp=99;
+ ps.forEach(p=>{const putts=auto.st[p.id].putts;if(putts<bp){bp=putts;bongo=p.id}});
+ if(group.game.type==='bbb')group.bbb[h]={bingo:auto.bingo||ps[0].id,bango:auto.bango||ps[0].id,bongo};
+ ps.forEach(p=>{const st=auto.st[p.id];const s=Math.max(1,st.shots+st.putts);writeScore(p.id,h,s,st.putts);prev[p.id]=s});
+ auto.prevScores=prev;auto.bingo=null;auto.bango=null;auto.wolfSaid=false;
+ const r=XLGames.settle(groupModel());
+ const last=(r.lines||[]).filter(l=>l.indexOf('Hole '+h)===0).slice(-1)[0]||'';
+ say(ps.map(p=>p.name+' '+prev[p.id]).join(', ')+(last?'. '+last:''))}
+function finishAuto(){const r=XLGames.settle(groupModel());
+ const board=(r.totals||[]).filter(t=>t.n).map(t=>t.name+' '+(group.game.useHcp?t.net+' net':t.gross)).join(', ');
+ const pay=r.transfers.map(t=>t.fromName+' pays '+t.toName+' '+XLGames.money(r.currency,t.amount)).join('. ');
+ stopAuto(true);
+ say(tr('Leaderboard. '+board+'. '+(pay?pay+'. ':'')+(group.count>1&&group.game.type!=='none'?'Friendly scorekeeping only. No money is handled.':''),
+  'Leaderboard. '+board+'. '+(pay?pay+'. ':'')+(group.count>1&&group.game.type!=='none'?'Friendly scorekeeping lang. Walang pera na hinahawakan.':'')));
+ render()}
+function stepAuto(){if(!auto.on||auto.paused||!opts.sim)return;const ps=activePlayers();const h=auto.hole;
+ if(auto.phase==='intro'){if(!greenAt(h)){auto.phase='next';return}hole=h;auto.st={};ps.forEach(p=>{const tee=autoTee(h);auto.st[p.id]={pos:tee,shots:0,dist:dist(tee,greenAt(h))*1.09361,onGreen:false,putts:0,reachedAt:0,advice:false}});
+  auto.order=XLGames.teeOrder(ps,auto.prevScores,auto.prevOrder).map(p=>p.id);auto.prevOrder=auto.order.slice();auto.idx=0;auto.phase='tee';auto.bingo=null;
+  const hon=ps.find(p=>p.id===auto.order[0]);showPos(auto.st[auto.order[0]].pos);
+  say(tr('Hole '+h+', par '+par(h)+'. Honors, '+hon.name+'.','Hole '+h+', par '+par(h)+'. Una si '+hon.name+'.'));return}
+ if(auto.phase==='tee'||auto.phase==='away'||auto.phase==='wolf')return swingStep(ps);
+ if(auto.phase==='green'){let best=ps[0].id,bestD=1e9;ps.forEach(p=>{if(auto.st[p.id].dist<bestD){bestD=auto.st[p.id].dist;best=p.id}});auto.bango=best;
+  auto.puttOrder=XLGames.awayOrder(ps.map(p=>p.id),Object.fromEntries(ps.map(p=>[p.id,auto.st[p.id].dist])));auto.idx=0;auto.phase='putt';say(tr('On the green.','Nasa green na.'));return}
+ if(auto.phase==='putt'){const id=auto.puttOrder[auto.idx],p=ps.find(x=>x.id===id),st=auto.st[id];st.putts=choosePutts(p,st);
+  say(tr(p.name+', '+st.putts+' putt'+(st.putts===1?'':'s')+'.',p.name+', '+st.putts+' putt'+(st.putts===1?'':'s')+'.'));auto.idx++;if(auto.idx>=auto.puttOrder.length)auto.phase='score';return}
+ if(auto.phase==='score'){recordHole(ps);auto.phase='next';return}
+ if(auto.phase==='next'){const n=nextPlayable(h+1);if(!n)return finishAuto();auto.hole=n;auto.phase='intro'}}
+function scheduleAuto(){if(!auto.on||auto.paused)return;if(auto.timer)clearTimeout(auto.timer);const gen=auto.gen;
+ auto.timer=setTimeout(()=>{if(gen!==auto.gen||!auto.on||auto.paused)return;try{stepAuto()}catch(e){stopAuto(true);say(tr('Auto play stopped.','Tigil ang auto play.'));return}if(auto.on&&!auto.paused)scheduleAuto()},auto.speed==='slow'?2600:auto.speed==='fast'?280:1200);paintAuto()}
+function startAuto(){if(!opts.sim)return;if(auto.on)return stopAuto(false);const h=nextPlayable(hole);if(!h)return say(tr('Set a green before auto play.','Mag-set muna ng green.'));
+ round.practice=true;auto.on=true;auto.paused=false;auto.hole=h;auto.phase='intro';auto.prevScores=null;auto.prevOrder=activePlayers().map(p=>p.id);auto.bingo=null;save();
+ say(tr('Auto play. Practice round.','Auto play. Practice round ito.'));scheduleAuto()}
+function pauseAuto(){if(!auto.on)return;auto.paused=!auto.paused;if(auto.paused){if(auto.timer)clearTimeout(auto.timer);auto.timer=0;say(tr('Auto play paused.','Naka-pause ang auto play.'))}
+ else{say(tr('Auto play resumed.','Tuloy ang auto play.'));scheduleAuto()}paintAuto()}
 // ---------- render ----------
 function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#cname').textContent=cur;const mh=$('#mh');if(mh)mh.textContent=hole;
  const d=toGreen();$('#yd').textContent=d==null?'—':yds(d);$('#fb').textContent=d==null?'':unitShort();
@@ -151,12 +290,17 @@ function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#c
  $('#course').innerHTML=Object.keys(courses).map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
  $('#hist').innerHTML=hist.slice().reverse().map(r=>`<div class="card">${String(r.date||'').slice(0,10)} · ${hx(r.course)}${r.practice?' · practice':''}: <b>${r.s}</b> (${relS(r.rel)}) · ${r.putts} putts · ${r.n} holes</div>`).join('')||`<small>${tr('No rounds yet','Wala pang round')}</small>`;
  $('#ct').innerHTML=clubs.map((c,i)=>`<tr><td><input data-cn=${i} value="${hx(c[0])}" style="width:90px"></td><td><input type=number data-cy=${i} value=${clubShown(c[1])} style="width:90px"></td><td><button class="b b2" style="min-height:40px;padding:4px 12px" onclick="clubs.splice(${i},1);save();render()">✕</button></td></tr>`).join('');
- $('#autoread').checked=opts.autoread;drawGreens();showMissing();xircleStatus();paintChrome();applyLang();showSplit()}
+ $('#autoread').checked=opts.autoread;drawGreens();showMissing();xircleStatus();paintChrome();applyLang();showSplit();paintGroup();paintAuto()}
 function paintChrome(){const m=!!opts.metric;
  for(const id of ['uYd','sYd']){const b=$('#'+id);if(b){b.classList.toggle('on',!m);b.setAttribute('aria-pressed',!m?'true':'false')}}
  for(const id of ['uM','sM']){const b=$('#'+id);if(b){b.classList.toggle('on',m);b.setAttribute('aria-pressed',m?'true':'false')}}
  const head=$('#clubhead');if(head){head.setAttribute('data-en','My distances (carry, '+(m?'m':'yds')+')');head.setAttribute('data-tl','Mga distansya ko (carry, '+(m?'m':'yds')+')')}
  const ask=$('#unitask');if(ask)ask.hidden=!!opts.unitsSet;
+ document.body.classList.toggle('sim',!!opts.sim);
+ const meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.content=opts.sim?'#2a2340':'#0b3d1e';
+ const play=$('#modePlay'),msb=$('#modeSim');
+ if(play){play.classList.toggle('on',!opts.sim);play.setAttribute('aria-pressed',!opts.sim?'true':'false')}
+ if(msb){msb.classList.toggle('on',!!opts.sim);msb.setAttribute('aria-pressed',opts.sim?'true':'false')}
  const ban=$('#simban');if(ban)ban.hidden=!opts.sim;
  const box=$('#simbox');if(box)box.hidden=!opts.sim;
  const walk=$('#simWalk');if(walk){walk.setAttribute('data-en',m?'Walk 50 m':'Walk 50 yds');walk.setAttribute('data-tl',m?'Lakad 50 m':'Lakad 50 yarda')}
@@ -185,14 +329,35 @@ $('#addclub').onclick=()=>{clubs.push(['LW',60]);save();render()};$('#resetc').o
 $('#autoread').onchange=e=>{opts.autoread=e.target.checked;save()};
 for(const [id,metric] of [['uYd',false],['sYd',false],['askYd',false],['uM',true],['sM',true],['askM',true]]){const b=$('#'+id);if(b)b.onclick=()=>setUnits(metric)}
 $('#sim').onchange=e=>setSim(e.target.checked);
+const modePlay=$('#modePlay'),modeSim=$('#modeSim');
+if(modePlay)modePlay.onclick=()=>{if(opts.sim)setSim(false)};
+if(modeSim)modeSim.onclick=()=>{if(!opts.sim)setSim(true)};
 $('#countSim').onchange=e=>{opts.countSim=e.target.checked;save()};
 $('#simWalk').onclick=walkSim;$('#simHit').onclick=hitSim;$('#simGreen').onclick=jumpGreen;$('#simNext').onclick=nextTee;
+if($('#autoPlay'))$('#autoPlay').onclick=()=>{if(auto.on)stopAuto(false);else startAuto()};
+if($('#autoPause'))$('#autoPause').onclick=pauseAuto;
+document.addEventListener('click',e=>{const n=e.target.closest&&e.target.closest('[data-gcount] [data-n]');if(n){group.count=+n.dataset.n;save();render();return}const sp=e.target.closest&&e.target.closest('#autoSpeed [data-spd]');if(sp){auto.speed=sp.dataset.spd;paintAuto()}});
+document.addEventListener('input',onGroupEdit);document.addEventListener('change',onGroupEdit);
+function onGroupEdit(e){const t=e.target;if(!t||!t.dataset)return;
+ if(t.dataset.gs){if(e.type!=='change')return;const s=+t.value,h=+t.dataset.gh,pid=t.dataset.gs;const prev=pid==='p1'?(round.holes[h]&&round.holes[h].p):(group.scores[pid]&&group.scores[pid][h]&&group.scores[pid][h].p);writeScore(pid,h,s>0?s:0,prev||0);render();return}
+ if(t.dataset.gf==='name')group.players[+t.dataset.pi].name=String(t.value).slice(0,24);
+ else if(t.dataset.gf==='hcp'){if(e.type!=='change')return;group.players[+t.dataset.pi].hcp=Math.max(-10,Math.min(54,Math.round(+t.value||0)))}
+ else if(t.dataset.gg==='game')group.game.type=t.value;
+ else if(t.dataset.gg==='stake'){if(e.type!=='change')return;group.game.stake=Math.max(0,+t.value||0)}
+ else if(t.dataset.gg==='currency')group.game.currency=t.value==='₱'?'₱':'$';
+ else if(t.dataset.gg==='useHcp')group.game.useHcp=!!t.checked;
+ else if(t.dataset.gg==='presses')group.game.presses=!!t.checked;
+ else if(t.dataset.gw==='partner'){const h=+t.dataset.gh,ps=activePlayers();group.wolf[h]={wolf:ps[(h-1)%4].id,partner:t.value||null}}
+ else if(t.dataset.gb){const h=+t.dataset.gh;group.bbb[h]=Object.assign({},group.bbb[h]);group.bbb[h][t.dataset.gb]=t.value||null}
+ else return;
+ save();paintGroup()}
 $('#lang').onchange=()=>{opts.lang=$('#lang').value==='tl'?'tl':'en';save();pickVoice();missSig='';render();say(tr('English.','Taglish na.'))};
 $('#course').onchange=e=>{if(totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return render();cur=e.target.value;round=newRound();hole=1;save();render();if(map)fitGreens()};
 $('#addc').onclick=()=>{const n=$('#newc').value.trim();if(!n)return;courses[n]=courses[n]||{pars:Array(18).fill(4),greens:{},shapes:[]};cur=n;round=newRound();hole=1;$('#newc').value='';save();render()};
-$('#fin').onclick=()=>{const t=totals();if(!t.n)return say(tr('Nothing to save yet.','Wala pang i-save.'));const practice=!!(round.practice||opts.sim);
- if(!practice||($('#keepPractice')&&$('#keepPractice').checked)){hist.push({...t,course:cur,date:round.date,holes:round.holes,practice});say(tr(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`,`Saved na ang round: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`))}
- else say(tr('Practice round. Left out of history.','Practice round. Hindi kasama sa history.'));
+$('#fin').onclick=()=>{stopAuto(true);const t=totals();if(!t.n)return say(tr('Nothing to save yet.','Wala pang i-save.'));const practice=!!(round.practice||opts.sim);const bet=betSpeech();
+ const rec={...t,course:cur,date:round.date,holes:round.holes,practice};if(group.count>1)rec.side={game:group.game.type};
+ if(!practice||($('#keepPractice')&&$('#keepPractice').checked)){hist.push(rec);say(tr(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`,`Saved na ang round: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`)+bet)}
+ else say(tr('Practice round. Left out of history.','Practice round. Hindi kasama sa history.')+bet);
  round=newRound();hole=1;save();render();maybeXircle()};
 $('#newr').onclick=()=>{if(confirm(tr('Clear the current card?','Burahin ang card na ito?'))){round=newRound();hole=1;save();render()}};
 // ---------- map ----------
@@ -954,7 +1119,6 @@ $('#xi-set').onclick=()=>{if(xstate.signup&&!xstate.signup.sent)return retryXirc
 $('#xi-join').onclick=()=>submitXircle();
 $('#xi-later').onclick=()=>dismissXircle();
 $('#xircle').onclick=e=>{if(e.target.id==='xircle')dismissXircle()};
-if(opts.sim){const t=teePoint(hole,true);if(t){pos=[t[0],t[1]];acc=3}}
 render();connect();
 maybeXircle();
 function showUpdate(){const el=$('#upd');if(!el)return;el.hidden=false;el.onclick=()=>location.reload()}

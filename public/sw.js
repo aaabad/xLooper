@@ -1,4 +1,4 @@
-const V='xlooper-v12',CORE=['./','index.html','app.js','course-osm.js','config.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','https://unpkg.com/leaflet@1.9.4/dist/leaflet.css','https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
+const V='xlooper-v14',CORE=['./','index.html','app.js','games.js','course-osm.js','config.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','https://unpkg.com/leaflet@1.9.4/dist/leaflet.css','https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
 self.addEventListener('install',e=>{e.waitUntil((async()=>{const c=await caches.open(V);await Promise.all(CORE.map(u=>c.add(u).catch(()=>{})));await self.skipWaiting()})())});
 self.addEventListener('activate',e=>{e.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(x=>x!==V&&x!=='xl-tiles').map(x=>caches.delete(x)));await self.clients.claim();const cs=await self.clients.matchAll({type:'window'});for(const c of cs)c.postMessage({type:'xlooper-update'})})())});
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);

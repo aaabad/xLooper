@@ -38,11 +38,37 @@ small{color:#9bb}
 #xircle label input{width:auto;flex:0 0 auto;margin-top:3px}#xi-err{color:#ffd23f;min-height:1.2em}
 .seg{display:flex;border-radius:14px;overflow:hidden;border:2px solid #ffd23f;margin:8px 0}
 .seg button{flex:1;background:#0b3d1e;color:#fff;border:0;font-weight:800;font-size:18px;min-height:52px;padding:10px}
+.seg.mini{margin:4px 0}.seg.mini button{min-height:36px;font-size:15px;padding:4px}
+.grow{display:flex;gap:6px;align-items:center;margin:4px 0}.grow small{flex:0 0 auto;font-size:13px}
+.grow input{width:auto;min-width:0}.grow input[data-gf="name"]{flex:1}.grow input[data-gf="hcp"]{flex:0 0 74px}
+#gstand .up,#simstand .up{color:#b6f5a0}#gstand .down,#simstand .down{color:#ffb4b4}
+.legal{display:block;font-size:13px;color:#9bb;margin-top:6px}
+#autoPause[hidden]{display:none}
+[data-prow].off{display:none}
 .seg button.on{background:#ffd23f;color:#06210f}
 .seg button:active,.seg button.pressed{filter:brightness(1.45);outline:3px solid #fff;outline-offset:-3px}
 .badge{display:inline-block;background:#ffd23f;color:#06210f;border-radius:8px;padding:1px 8px;font-size:14px;font-weight:800;margin-left:6px}
-#simban{flex:none;background:#c62828;color:#fff;text-align:center;font-weight:900;letter-spacing:.22em;font-size:20px;padding:8px 12px}
+#simban{flex:none;background:#3d3458;color:#efe8ff;text-align:center;font-weight:800;letter-spacing:.2em;font-size:11px;line-height:1.2;padding:3px 8px}
 #simban[hidden],#unitask[hidden],#simbox[hidden],#haz:empty{display:none}
+.mode{display:inline-flex;margin:0 0 8px;border:1px solid #2a5a3c;border-radius:999px;overflow:hidden}
+.mode button{background:transparent;color:#cfe;border:0;font-size:13px;font-weight:700;min-height:30px;padding:3px 10px;line-height:1.2}
+.mode button.on{background:#1d5c33;color:#fff}
+#club{color:#9be564}
+body.sim{background:#161222;color:#f4f0fa}
+body.sim header,body.sim nav,body.sim .card,body.sim .seg button{background:#2a2340}
+body.sim nav button{color:#d9d0ea}
+body.sim nav button.on{color:#d7c4ff;border-top-color:#d7c4ff}
+body.sim .logo b,body.sim #club,body.sim #vhcpout{color:#d7c4ff}
+body.sim button.b{background:#c4b5e0;color:#1a1428}
+body.sim button.b2{background:#3d3458;color:#f4f0fa}
+body.sim button.mic{background:#e4c56a;color:#1a1428}
+body.sim td,body.sim th,body.sim .msg{border-bottom-color:#3d3458}
+body.sim .cur,body.sim .mode button.on{background:#4a4168}
+body.sim .mode{border-color:#5c5080}
+body.sim .mode button{color:#d9d0ea}
+body.sim .mode button.on{color:#fff}
+body.sim small{color:#b7adc9}
+body.sim .sub{color:#cbbfe0}
 #vhcpout{color:#9be564;font-weight:800;margin:6px 0}
 #rline{color:#ffd23f;font-weight:800;min-height:2.6em;margin:8px 0}
 #rlb tr.flash td{animation:xlflash .8s ease}
@@ -53,10 +79,11 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
 <button type="button" id="upd" hidden>New version, tap to refresh</button>
 <div id="toast" hidden></div>
 <header><div class="logo"><b>x</b>Looper</div><div style="display:flex;gap:8px;align-items:center"><select id="lang" aria-label="Language" style="width:auto;font-size:15px;padding:6px 8px"><option value="en">English</option><option value="tl">Taglish</option></select><div id="gps" style="font-size:15px">GPS…</div></div></header>
-<div id="simban" hidden>SIMULATION</div>
+<div id="simban" hidden>SIM</div>
 <div id="screens">
 <div id="near" class="card" style="display:none;margin:10px 12px 0"><div id="neartxt"></div><div class="row"><button class="b" id="nearyes" data-en="Switch" data-tl="Lipat">Switch</button><button class="b b2" id="nearno" data-en="Not now" data-tl="Huwag muna">Not now</button></div></div>
 <section id="s-caddy" class="on">
+ <div class="mode" role="group" aria-label="Play mode"><button type="button" id="modePlay" data-en="Actual play" data-tl="Tunay">Actual play</button><button type="button" id="modeSim" data-en="Simulation" data-tl="Simulation">Simulation</button></div>
  <div id="unitask" class="card" hidden>
   <b data-en="How should xLooper measure distance?" data-tl="Paano sukatin ang distansya?">How should xLooper measure distance?</b>
   <div class="row"><button type="button" class="b" id="askYd" data-en="Yards" data-tl="Yarda">Yards</button><button type="button" class="b b2" id="askM" data-en="Meters" data-tl="Metro">Meters</button></div>
@@ -68,11 +95,25 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
   <div style="flex:1.4"><div class="big" id="yd">—</div><div class="sub"><span data-en="center" data-tl="gitna">center</span> <span id="fb"></span></div></div>
   <div><div style="font-size:42px;font-weight:900;line-height:1" id="ydB">—</div><div class="sub" data-en="back" data-tl="likod">back</div></div>
  </div>
- <div class="sub" style="font-size:28px;margin:8px;color:#9be564" id="club">&nbsp;</div>
+ <div class="sub" style="font-size:28px;margin:8px" id="club">&nbsp;</div>
  <div class="sub" id="haz" style="font-size:18px;color:#ffd23f"></div>
  <div id="simbox" class="card" hidden>
   <div class="row"><button type="button" class="b b2" id="simWalk">Walk 50 yds</button><button type="button" class="b b2" id="simHit" data-en="Hit shot" data-tl="Tumira">Hit shot</button></div>
   <div class="row"><button type="button" class="b b2" id="simGreen" data-en="Jump to green" data-tl="Punta sa green">Jump to green</button><button type="button" class="b b2" id="simNext" data-en="Next tee" data-tl="Susunod na tee">Next tee</button></div>
+  <div class="row"><button type="button" class="b" id="autoPlay" data-en="Auto play" data-tl="Auto play">Auto play</button><button type="button" class="b b2" id="autoPause" hidden data-en="Pause" data-tl="Pause">Pause</button></div>
+  <div class="seg mini" id="autoSpeed" role="group" aria-label="Auto play speed"><button type="button" data-spd="slow" data-en="Slow" data-tl="Mabagal">Slow</button><button type="button" data-spd="normal" class="on" data-en="Normal" data-tl="Normal">Normal</button><button type="button" data-spd="fast" data-en="Fast" data-tl="Mabilis">Fast</button></div>
+  <small data-en="Players" data-tl="Mga players">Players</small>
+  <div class="seg mini" data-gcount role="group" aria-label="How many players"><button type="button" data-n="1">1</button><button type="button" data-n="2">2</button><button type="button" data-n="3">3</button><button type="button" data-n="4">4</button></div>
+  <div class="grow" data-prow="0"><small data-en="You" data-tl="Ikaw">You</small><input data-gf="name" data-pi="0" value="Player 1" aria-label="Your name" maxlength="24"><input data-gf="hcp" data-pi="0" type="number" min="-10" max="54" step="1" value="12" aria-label="Your handicap"></div>
+  <div class="grow" data-prow="1"><input data-gf="name" data-pi="1" value="Player 2" aria-label="Player 2" maxlength="24"><input data-gf="hcp" data-pi="1" type="number" min="-10" max="54" step="1" value="18" aria-label="Player 2 handicap"></div>
+  <div class="grow" data-prow="2"><input data-gf="name" data-pi="2" value="Player 3" aria-label="Player 3" maxlength="24"><input data-gf="hcp" data-pi="2" type="number" min="-10" max="54" step="1" value="8" aria-label="Player 3 handicap"></div>
+  <div class="grow" data-prow="3"><input data-gf="name" data-pi="3" value="Player 4" aria-label="Player 4" maxlength="24"><input data-gf="hcp" data-pi="3" type="number" min="-10" max="54" step="1" value="24" aria-label="Player 4 handicap"></div>
+  <select data-gg="game" aria-label="Friendly bet"><option value="none">No bet</option><option value="skins">Skins</option><option value="nassau">Nassau</option><option value="match">Match play</option><option value="stroke">Stroke play</option><option value="wolf">Wolf</option><option value="bbb">Bingo Bango Bongo</option></select>
+  <div class="row"><input data-gg="stake" type="number" min="0" step="1" value="5" aria-label="Stake"><select data-gg="currency" aria-label="Currency" style="flex:0 0 88px"><option value="$">$</option><option value="₱">₱</option></select></div>
+  <label class="check"><input type="checkbox" data-gg="useHcp" style="width:auto"> <span data-en="Handicap strokes" data-tl="Handicap strokes">Handicap strokes</span></label>
+  <label class="check pressrow"><input type="checkbox" data-gg="presses" style="width:auto"> <span data-en="Nassau auto-press when 2 down" data-tl="Nassau auto-press kapag 2 down">Nassau auto-press when 2 down</span></label>
+  <div id="simstand"></div>
+  <small class="legal" data-en="Friendly scorekeeping only. xLooper does not handle money." data-tl="Friendly scorekeeping lang. Walang pera na hinahawakan ng app.">Friendly scorekeeping only. xLooper does not handle money.</small>
   <small data-en="Tap the map to place yourself. This round is practice." data-tl="I-tap ang mapa para pumwesto. Practice round ito.">Tap the map to place yourself. This round is practice.</small>
  </div>
  <div id="log"></div>
@@ -103,6 +144,23 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
  <div id="getbox" style="display:none"><div class="row"><input id="coursein" placeholder="Paste code or link"><button class="b" id="coursego" style="flex:0 0 120px;font-size:18px">Preview</button></div><div id="cprev"></div></div></div>
  <div id="tot" class="sub" style="font-size:24px;margin:8px"></div>
  <table id="sc"></table>
+ <div class="card" id="groupbox">
+  <b data-en="Group" data-tl="Grupo">Group</b>
+  <small data-en="Players" data-tl="Mga players">Players</small>
+  <div class="seg mini" data-gcount role="group" aria-label="How many players"><button type="button" data-n="1">1</button><button type="button" data-n="2">2</button><button type="button" data-n="3">3</button><button type="button" data-n="4">4</button></div>
+  <div class="grow" data-prow="0"><small data-en="You" data-tl="Ikaw">You</small><input data-gf="name" data-pi="0" value="Player 1" aria-label="Your name" maxlength="24"><input data-gf="hcp" data-pi="0" type="number" min="-10" max="54" step="1" value="12" aria-label="Your handicap"></div>
+  <div class="grow" data-prow="1"><input data-gf="name" data-pi="1" value="Player 2" aria-label="Player 2" maxlength="24"><input data-gf="hcp" data-pi="1" type="number" min="-10" max="54" step="1" value="18" aria-label="Player 2 handicap"></div>
+  <div class="grow" data-prow="2"><input data-gf="name" data-pi="2" value="Player 3" aria-label="Player 3" maxlength="24"><input data-gf="hcp" data-pi="2" type="number" min="-10" max="54" step="1" value="8" aria-label="Player 3 handicap"></div>
+  <div class="grow" data-prow="3"><input data-gf="name" data-pi="3" value="Player 4" aria-label="Player 4" maxlength="24"><input data-gf="hcp" data-pi="3" type="number" min="-10" max="54" step="1" value="24" aria-label="Player 4 handicap"></div>
+  <select data-gg="game" aria-label="Friendly bet"><option value="none">No bet</option><option value="skins">Skins</option><option value="nassau">Nassau</option><option value="match">Match play</option><option value="stroke">Stroke play</option><option value="wolf">Wolf</option><option value="bbb">Bingo Bango Bongo</option></select>
+  <div class="row"><input data-gg="stake" type="number" min="0" step="1" value="5" aria-label="Stake"><select data-gg="currency" aria-label="Currency" style="flex:0 0 88px"><option value="$">$</option><option value="₱">₱</option></select></div>
+  <label class="check"><input type="checkbox" data-gg="useHcp" style="width:auto"> <span data-en="Handicap strokes" data-tl="Handicap strokes">Handicap strokes</span></label>
+  <label class="check pressrow"><input type="checkbox" data-gg="presses" style="width:auto"> <span data-en="Nassau auto-press when 2 down" data-tl="Nassau auto-press kapag 2 down">Nassau auto-press when 2 down</span></label>
+  <div id="ghole"></div>
+  <table id="ggrid"></table>
+  <div id="gstand"></div>
+  <small class="legal" data-en="Friendly scorekeeping only. xLooper does not handle money." data-tl="Friendly scorekeeping lang. Walang pera na hinahawakan ng app.">Friendly scorekeeping only. xLooper does not handle money.</small>
+ </div>
  <label id="keepWrap" class="check" style="display:none"><input type="checkbox" id="keepPractice" style="width:auto"> <span data-en="Save this practice round in history" data-tl="I-save ang practice round sa history">Save this practice round in history</span></label>
  <div class="row"><button class="b" id="fin" data-en="Finish &amp; save round" data-tl="Tapusin at i-save">Finish &amp; save round</button><button class="b red" id="newr" data-en="New round" data-tl="Bagong round">New round</button></div>
  <h3 data-en="History" data-tl="History">History</h3><div id="hist"></div></section>
@@ -114,7 +172,7 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
  <small data-en="Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them." data-tl="Papalitan ang GPS para makapag-practice sa bahay. Practice ang round maliban kung i-save mo.">Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them.</small>
  <label id="countSimLbl" class="check" style="display:none"><input type="checkbox" id="countSim" style="width:auto"> <span data-en="Count simulated scores on a real tournament" data-tl="Bilangin ang simulation sa totoong tournament">Count simulated scores on a real tournament</span></label></div>
  <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.12 · for Boss (GSSC)</small></section>
+ <small>xLooper v0.14 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)">
  <label class="check"><input type="checkbox" id="tpractice" style="width:auto"> <span data-en="Practice code (dry run)" data-tl="Practice code (dry run)">Practice code (dry run)</span></label>
@@ -190,6 +248,7 @@ label.check{display:flex;gap:8px;align-items:center;font-size:16px;margin:8px 0}
  <div id="xi-err"></div>
  <div class="row"><button class="b" id="xi-join" style="font-size:18px">Join xircle</button><button class="b b2" id="xi-later" style="font-size:18px">Not now</button></div>
 </div></div>
+<script src="games.js"></script>
 <script src="config.js"></script>
 <script src="course-osm.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
