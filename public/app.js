@@ -1,4 +1,4 @@
-// xLooper v0.14 – voice golf caddy PWA
+// xLooper v0.15 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -23,8 +23,13 @@ xstate.opens=(+xstate.opens||0)+1;P('xircle',xstate);
 const C=()=>courses[cur], par=h=>C().pars[h-1]||4;
 let group=normalizeGroup(L('group',null));
 let auto={on:false,paused:false,speed:'normal',timer:0,gen:0,phase:'intro',hole:1};
-const save=()=>{P('courses',courses);P('cur',cur);P('round',round);P('hist',hist);P('clubs',clubs);P('hole',hole);P('tour',tour);P('opts',opts);P('shot',shot);P('bots',bots);P('group',group)};
-const newRound=()=>{opts.sim=false;auto.gen++;stopAuto(true);group.scores={};group.wolf={};group.bbb={};return {course:cur,date:new Date().toISOString(),holes:{},practice:false}};
+let train=L('train',[]); if(!Array.isArray(train))train=[];
+let trainPick='', coachSig='', roundNote='';
+let flight=normalizeFlight(L('flight',null));
+const save=()=>{P('courses',courses);P('cur',cur);P('round',round);P('hist',hist);P('clubs',clubs);P('hole',hole);P('tour',tour);P('opts',opts);P('shot',shot);P('bots',bots);P('group',group);P('flight',flight);P('train',train)};
+const newRound=()=>{opts.sim=false;auto.gen++;stopAuto(true);group.scores={};group.wolf={};group.bbb={};train=[];trainPick='';coachSig='';roundNote='';
+ queueMicrotask(()=>{try{if(flight&&flight.captain&&flight.captain===myId){flight.round=(+flight.round||1)+1;publishFlightInfo()}}catch{}});
+ return {course:cur,date:new Date().toISOString(),holes:{},practice:false}};
 if(!round||round.course!==cur)round=newRound();
 // ---------- speech ----------
 function taglish(){return opts.lang==='tl'}
@@ -128,22 +133,34 @@ function bearingTo(a,b){const y=Math.sin(rad(b[1]-a[1]))*Math.cos(rad(b[0]));con
 function offsetLL(from,meters,bearing){const d=meters/6371000,lat1=rad(from[0]),lon1=rad(from[1]);const lat2=Math.asin(Math.sin(lat1)*Math.cos(d)+Math.cos(lat1)*Math.sin(d)*Math.cos(bearing));const lon2=lon1+Math.atan2(Math.sin(bearing)*Math.sin(d)*Math.cos(lat1),Math.cos(d)-Math.sin(lat1)*Math.sin(lat2));return [lat2*180/Math.PI,lon2*180/Math.PI]}
 function maybeAutoHole(){if(auto.on||!opts.sim||!pos||hole>=18)return;const tee=teePoint(hole+1,false),g=greenAt(hole);if(!tee)return;if(dist(pos,tee)<30&&(!g||dist(pos,g)>40)){hole+=1;shot=null;save()}}
 function placeSim(ll){if(!ll||!isFinite(+ll[0])||!isFinite(+ll[1]))return;pos=[+ll[0],+ll[1]];acc=3;maybeAutoHole();render();if(me)me.setLatLng(pos);considerNearby()}
-function setSim(on){opts.sim=!!on;if(!opts.sim)stopAuto(true);if(opts.sim){round.practice=true;save();const t=teePoint(hole,true)||pos;if(t)placeSim(t);else render();say(tr('Simulation on. You are on the tee.','Simulation on. Nasa tee ka.'))}
+function setSim(on){opts.sim=!!on;if(!opts.sim)stopAuto(true);if(opts.sim){round.practice=true;save();const t=teePoint(hole,true)||pos;if(t)placeSim(t);else render();say(tr('Simulation on. Training round. You are on the tee.','Simulation on. Training round. Nasa tee ka.'))}
  else{if(!totals().n)round.practice=false;save();render();say(tr('Simulation off. Using real GPS.','Simulation off. Totoong GPS na.'))}}
 function moveSim(meters,lateral){if(!pos){const t=teePoint(hole,true);if(!t)return say(tr('No tee on this hole.','Walang tee sa hole na ito.'));placeSim(t)}
  const g=greenAt(hole);let br=g&&dist(pos,g)>=1?bearingTo(pos,g):0;let dest=offsetLL(pos,Math.max(0,meters),br);if(lateral)dest=offsetLL(dest,lateral,br+Math.PI/2);placeSim(dest)}
 function walkSim(){moveSim(opts.metric?50:50*M_PER_YD,0)}
+function shotChoice(){const g=greenAt(hole);if(!g||!pos)return null;const y=Math.round(dist(pos,g)*1.09361),suggested=clubFor(y);
+ const row=clubs.find(c=>c[0]===trainPick);const chosen=trainPick&&row?row:(trainPick&&trainPick===suggested[0]?suggested:trainPick?null:suggested);
+ const use=chosen||suggested;return {y,suggested,chosen:use,match:!trainPick||use[0]===suggested[0]}}
 function hitSim(){const g=greenAt(hole);if(!g)return say(tr('No green on this hole yet.','Wala pang green sa hole na ito.'));if(!pos){const t=teePoint(hole,true);if(t)placeSim(t)}
- const y=Math.round(dist(pos,g)*1.09361),c=clubFor(y);let carry=c[1]*M_PER_YD;const jitter=carry*(Math.random()*0.08-0.04),lateral=carry*(Math.random()*0.06-0.03),remain=dist(pos,g);
- if(carry+jitter>remain)carry=Math.max(1,remain-4);moveSim(Math.max(1,carry+jitter),lateral);say(tr('Hit the '+clubName(c[0])+'.','Tira ng '+c[0]+'.'))}
+ const pick=shotChoice();if(!pick)return say(tr('No green on this hole yet.','Wala pang green sa hole na ito.'));
+ const c=pick.chosen;let carry=(+c[1]||40)*M_PER_YD;const jitter=carry*(Math.random()*0.08-0.04),lateral=carry*(Math.random()*0.06-0.03),remain=dist(pos,g),going=carry+jitter;
+ if(going>=remain-8)moveSim(Math.max(1,Math.min(going,Math.max(1,remain-4))),lateral);else moveSim(Math.max(1,going),lateral);
+ train.push({hole,pick:c[0],suggested:pick.suggested[0],match:pick.match,y:pick.y});
+ const hz=nearestHazard();
+ const cmp=pick.match?tr(' That matches the caddy.',' Tugma sa caddy.'):tr(' Caddy suggested the '+clubName(pick.suggested[0])+'.',' Caddy: '+clubName(pick.suggested[0])+'.');
+ const warn=hz?tr(' Watch the '+hz.label+'.',' Ingat sa '+hz.label+'.'):'';
+ say(tr('Hit the '+clubName(c[0])+'.','Tira ng '+c[0]+'.')+cmp+warn);trainPick='';coachSig=''}
 function jumpGreen(){const g=greenAt(hole);if(!g)return say(tr('No green on this hole yet.','Wala pang green sa hole na ito.'));placeSim(g);say(tr('On the green.','Nasa green ka na.'))}
-function nextTee(){hole=hole>=18?1:hole+1;shot=null;const t=teePoint(hole,true);if(t)placeSim(t);else{save();render()}sayYardage()}
+function nextTee(){if(opts.sim)fillPlaceholders(hole);hole=hole>=18?1:hole+1;shot=null;trainPick='';coachSig='';const t=teePoint(hole,true);if(t)placeSim(t);else{save();render()}sayYardage()}
+function normalizeFlight(f){if(!f||typeof f!=='object'||!f.code)return null;const code=String(f.code).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);if(code.length<4)return null;
+ return {code,captain:String(f.captain||''),started:!!f.started,round:Math.max(1,Math.round(+f.round||1))}}
 function normalizeGroup(g){
- const players=[{id:'p1',name:'Player 1',hcp:12},{id:'p2',name:'Player 2',hcp:18},{id:'p3',name:'Player 3',hcp:8},{id:'p4',name:'Player 4',hcp:24}];
+ const players=[{id:'p1',name:'Player 1',hcp:12,owner:'',you:true},{id:'p2',name:'Player 2',hcp:18,owner:'',you:false},{id:'p3',name:'Player 3',hcp:8,owner:'',you:false},{id:'p4',name:'Player 4',hcp:24,owner:'',you:false}];
  const out={count:1,players,game:{type:'none',stake:5,currency:'$',useHcp:false,presses:false},scores:{},wolf:{},bbb:{}};
  if(!g||typeof g!=='object')return out;
  out.count=Math.min(4,Math.max(1,Math.round(+g.count||1)));
- if(Array.isArray(g.players))g.players.slice(0,4).forEach((p,i)=>{if(!p)return;if(p.name)out.players[i].name=String(p.name).slice(0,24);if(p.hcp!=null&&p.hcp!==''&&isFinite(+p.hcp))out.players[i].hcp=Math.max(-10,Math.min(54,Math.round(+p.hcp)))});
+ if(Array.isArray(g.players))g.players.slice(0,4).forEach((p,i)=>{if(!p)return;if(p.name)out.players[i].name=String(p.name).slice(0,24);if(p.hcp!=null&&p.hcp!==''&&isFinite(+p.hcp))out.players[i].hcp=Math.max(-10,Math.min(54,Math.round(+p.hcp)));if(p.owner)out.players[i].owner=String(p.owner).slice(0,40);out.players[i].you=!!p.you});
+ if(!out.players.some(p=>p.you))out.players[0].you=true;
  const types=['none','skins','nassau','match','stroke','wolf','bbb'];
  if(g.game&&types.includes(g.game.type))out.game.type=g.game.type;
  if(g.game&&g.game.stake!=null&&isFinite(+g.game.stake))out.game.stake=Math.max(0,+g.game.stake);
@@ -154,11 +171,37 @@ function normalizeGroup(g){
  if(g.bbb&&typeof g.bbb==='object')out.bbb=g.bbb;
  return out}
 function activePlayers(){return group.players.slice(0,group.count)}
-function pullP1(){group.scores.p1=group.scores.p1||{};for(let h=1;h<=18;h++){const x=round.holes[h];if(x&&x.s)group.scores.p1[h]={s:+x.s,p:+x.p||0};else delete group.scores.p1[h]}}
+function myIdSafe(){try{return myId||''}catch(e){return ''}}
+function mePlayer(){const id=myIdSafe();if(id){const owned=group.players.find(p=>p.owner&&p.owner===id);if(owned)return owned}return group.players.find(p=>p.you)||group.players[0]}
+function iAmCaptain(){return !flight||flight.captain===myIdSafe()}
+function settingsLocked(){return !!(flight&&flight.captain!==myIdSafe())}
+function scoringOpen(){return !flight||!!flight.started}
+function placeholderPlayers(){const me=mePlayer();return activePlayers().filter(p=>p!==me&&!p.owner)}
+function canReplace(prev,incoming){if(!prev||!(+prev.s>0))return true;if(incoming.lock)return true;if(prev.lock)return false;if(incoming.self)return true;if(prev.self)return false;if(incoming.kind==='sim')return prev.kind==='sim'||prev.by==='sim';return true}
+function whoMark(sc){if(!sc||!(+sc.s>0))return '';if(sc.lock)return 'captain'+(sc.note?' · '+sc.note:'');if(sc.self)return 'own';if(sc.kind==='sim'||sc.by==='sim')return 'sim';return sc.byName||'entered'}
+function pullP1(){if(flight&&!flight.started)return;const me=mePlayer();if(!me)return;const pid=me.id;if(!group.scores[pid])group.scores[pid]={};const by=myIdSafe();
+ for(let h=1;h<=18;h++){const x=round.holes[h],prev=group.scores[pid][h];
+  if(x&&+x.s>0){const incoming={s:+x.s,p:+x.p||0,self:true,by,byName:me.name||'',kind:'self',lock:false,note:''};
+   if(!prev||!(+prev.s>0))group.scores[pid][h]=incoming;
+   else if(+prev.s===incoming.s&&(+prev.p||0)===(+incoming.p||0)){}
+   else if(canReplace(prev,incoming))group.scores[pid][h]=incoming}
+  else if(prev&&prev.self&&prev.by===by&&!prev.lock)delete group.scores[pid][h]}}
 function groupModel(){pullP1();const g=group.game;return {type:g.type,stake:g.stake,currency:g.currency,useHcp:g.useHcp,presses:g.presses,players:activePlayers(),scores:group.scores,wolf:group.wolf,bbb:group.bbb}}
-function writeScore(pid,h,s,p){s=+s||0;p=+p||0;if(!group.scores[pid])group.scores[pid]={};if(s>0)group.scores[pid][h]={s,p};else delete group.scores[pid][h];
- if(pid==='p1'){if(s>0)round.holes[h]={...(round.holes[h]||{}),s,p};else delete round.holes[h]}
- save();if(pid==='p1'&&s>0)postScore(h)}
+function writeScore(pid,h,s,p,meta){meta=meta||{};h=+h;if(!(h>=1&&h<=18)||!pid)return false;
+ if(flight&&!flight.started&&meta.kind!=='sim'&&!meta.lock)return false;
+ const me=mePlayer(),mine=!!(me&&pid===me.id),by=meta.by||(meta.kind==='sim'?'sim':myIdSafe()),byName=meta.byName||(meta.kind==='sim'?'sim':(me&&me.name)||'');
+ const incoming={s:+s||0,p:+p||0,by,byName,self:!!meta.self,lock:!!meta.lock,note:meta.note||'',kind:meta.kind||(meta.lock?'lock':meta.self?'self':'scorer')};
+ if(!group.scores[pid])group.scores[pid]={};const prev=group.scores[pid][h];
+ if(!(incoming.s>0)){if(prev&&prev.lock&&!incoming.lock)return false;if(prev&&prev.self&&!incoming.self&&!incoming.lock)return false;
+  if(prev)delete group.scores[pid][h];if(mine&&(!prev||prev.self||incoming.self)&&round.holes[h])delete round.holes[h];save();if(!meta.echo)flightPubScore(pid,h,null);return true}
+ if(!canReplace(prev,incoming))return false;
+ group.scores[pid][h]=incoming;
+ if(mine&&(incoming.self||incoming.lock))round.holes[h]={...(round.holes[h]||{}),s:incoming.s,p:incoming.p};
+ save();if(mine&&incoming.self)postScore(h);if(!meta.echo)flightPubScore(pid,h,incoming);return true}
+function fillPlaceholders(h){if(!opts.sim)return;if(flight&&!iAmCaptain())return;
+ for(const p of placeholderPlayers()){const prev=group.scores[p.id]&&group.scores[p.id][h];if(prev&&+prev.s>0&&prev.kind!=='sim'&&prev.by!=='sim')continue;
+  const extra=Math.round(Math.max(0,+p.hcp||0)/18),r=Math.random(),d=r<0.12?-1:r<0.4?0:r<0.75?Math.max(1,extra):extra+1,s=Math.max(1,par(h)+d),putts=s<=par(h)?(r<0.5?1:2):2;
+  writeScore(p.id,h,s,putts,{kind:'sim',by:'sim',byName:'sim',self:false})}}
 function betSpeech(){if(group.count<2||group.game.type==='none'||!window.XLGames)return '';const r=XLGames.settle(groupModel());
  const pay=r.transfers.map(t=>t.fromName+' pays '+t.toName+' '+XLGames.money(r.currency,t.amount)).join('. ');
  return ' '+(pay?pay+'. ':tr('Bets are all square. ','Tabla ang bets. '))+tr('Friendly scorekeeping only. No money is handled.','Friendly scorekeeping lang. Walang pera na hinahawakan.')}
@@ -181,8 +224,9 @@ function paintGroup(){if(!window.XLGames)return;pullP1();
  $$('.pressrow').forEach(el=>{el.style.display=group.game.type==='nassau'?'':'none'});
  const table=$('#ggrid');
  if(table){const ps=activePlayers();if(ps.length<2)table.innerHTML='';else{let h='<tr><th>H</th>'+ps.map(p=>`<th>${hx(p.name)}</th>`).join('')+'</tr>';
-  for(let i=1;i<=18;i++){h+=`<tr class="${i===hole?'cur':''}"><td onclick="go(${i})">${i}</td>`;ps.forEach(p=>{const sc=p.id==='p1'?round.holes[i]:(group.scores[p.id]&&group.scores[p.id][i]);h+=`<td><input type="number" min="1" max="20" data-gs="${p.id}" data-gh="${i}" value="${sc&&sc.s?sc.s:''}" style="width:52px"></td>`});h+='</tr>'}
+  for(let i=1;i<=18;i++){h+=`<tr class="${i===hole?'cur':''}"><td onclick="go(${i})">${i}</td>`;ps.forEach(p=>{const sc=group.scores[p.id]&&group.scores[p.id][i];const mark=whoMark(sc);h+=`<td><input type="number" min="1" max="20" data-gs="${p.id}" data-gh="${i}" value="${sc&&sc.s?sc.s:''}" style="width:52px">${mark?`<small class="who">${hx(mark)}</small>`:''}</td>`});h+='</tr>'}
   table.innerHTML=h}}
+ const now=$('#nowscores');if(now){if(!opts.sim||activePlayers().length<2)now.textContent='';else now.textContent='Hole '+hole+' · '+activePlayers().map(p=>{const sc=group.scores[p.id]&&group.scores[p.id][hole];const mark=whoMark(sc);return p.name+': '+(sc&&sc.s?sc.s:'–')+(mark?' ('+mark+')':'')}).join(' · ')}
  paintHoleExtras();
  const settled=XLGames.settle(groupModel());
  const full=standHTML(settled,false),short=standHTML(settled,true);
@@ -236,16 +280,17 @@ function swingStep(ps){
   id=XLGames.awayOrder(left.map(p=>p.id),Object.fromEntries(left.map(p=>[p.id,auto.st[p.id].dist])))[0]}
  const p=ps.find(x=>x.id===id),st=auto.st[id];
  showPos(st.pos);
- if(p.id==='p1'&&!st.advice){st.advice=true;sayClub();return}
- const shot=hitBall(p,st,auto.hole);st.advice=false;
+ if(p.id===mePlayer().id&&!st.advice){st.advice=true;sayClub();return}
+ const shot=hitBall(p,st,auto.hole);st.advice=false;train.push({hole:auto.hole,pick:shot.club,suggested:shot.club,match:true,auto:true});
  if(st.onGreen&&!auto.bingo)auto.bingo=p.id;
  if(st.onGreen)say(tr(p.name+' is on the green.','Nasa green na si '+p.name+'.'));
  else say(tr(p.name+' hits '+clubName(shot.club)+'. '+shot.left+' '+unit()+' left.', 'Tira ni '+p.name+', '+clubName(shot.club)+'. '+shot.left+' '+unitTl()+' pa.'));
  if(auto.phase==='tee')auto.idx++}
 function recordHole(ps){const h=auto.hole,prev={};let bongo=ps[0].id,bp=99;
  ps.forEach(p=>{const putts=auto.st[p.id].putts;if(putts<bp){bp=putts;bongo=p.id}});
- if(group.game.type==='bbb')group.bbb[h]={bingo:auto.bingo||ps[0].id,bango:auto.bango||ps[0].id,bongo};
- ps.forEach(p=>{const st=auto.st[p.id];const s=Math.max(1,st.shots+st.putts);writeScore(p.id,h,s,st.putts);prev[p.id]=s});
+ if(group.game.type==='bbb'&&ps.length===activePlayers().length)group.bbb[h]={bingo:auto.bingo||ps[0].id,bango:auto.bango||ps[0].id,bongo};
+ ps.forEach(p=>{const st=auto.st[p.id];const s=Math.max(1,st.shots+st.putts);writeScore(p.id,h,s,st.putts,{self:true,kind:'self',by:myIdSafe(),byName:p.name});prev[p.id]=s});
+ fillPlaceholders(h);
  auto.prevScores=prev;auto.bingo=null;auto.bango=null;auto.wolfSaid=false;
  const r=XLGames.settle(groupModel());
  const last=(r.lines||[]).filter(l=>l.indexOf('Hole '+h)===0).slice(-1)[0]||'';
@@ -257,7 +302,7 @@ function finishAuto(){const r=XLGames.settle(groupModel());
  say(tr('Leaderboard. '+board+'. '+(pay?pay+'. ':'')+(group.count>1&&group.game.type!=='none'?'Friendly scorekeeping only. No money is handled.':''),
   'Leaderboard. '+board+'. '+(pay?pay+'. ':'')+(group.count>1&&group.game.type!=='none'?'Friendly scorekeeping lang. Walang pera na hinahawakan.':'')));
  render()}
-function stepAuto(){if(!auto.on||auto.paused||!opts.sim)return;const ps=activePlayers();const h=auto.hole;
+function stepAuto(){if(!auto.on||auto.paused||!opts.sim)return;const ps=[mePlayer()];const h=auto.hole;
  if(auto.phase==='intro'){if(!greenAt(h)){auto.phase='next';return}hole=h;auto.st={};ps.forEach(p=>{const tee=autoTee(h);auto.st[p.id]={pos:tee,shots:0,dist:dist(tee,greenAt(h))*1.09361,onGreen:false,putts:0,reachedAt:0,advice:false}});
   auto.order=XLGames.teeOrder(ps,auto.prevScores,auto.prevOrder).map(p=>p.id);auto.prevOrder=auto.order.slice();auto.idx=0;auto.phase='tee';auto.bingo=null;
   const hon=ps.find(p=>p.id===auto.order[0]);showPos(auto.st[auto.order[0]].pos);
@@ -272,16 +317,37 @@ function stepAuto(){if(!auto.on||auto.paused||!opts.sim)return;const ps=activePl
 function scheduleAuto(){if(!auto.on||auto.paused)return;if(auto.timer)clearTimeout(auto.timer);const gen=auto.gen;
  auto.timer=setTimeout(()=>{if(gen!==auto.gen||!auto.on||auto.paused)return;try{stepAuto()}catch(e){stopAuto(true);say(tr('Auto play stopped.','Tigil ang auto play.'));return}if(auto.on&&!auto.paused)scheduleAuto()},auto.speed==='slow'?2600:auto.speed==='fast'?280:1200);paintAuto()}
 function startAuto(){if(!opts.sim)return;if(auto.on)return stopAuto(false);const h=nextPlayable(hole);if(!h)return say(tr('Set a green before auto play.','Mag-set muna ng green.'));
- round.practice=true;auto.on=true;auto.paused=false;auto.hole=h;auto.phase='intro';auto.prevScores=null;auto.prevOrder=activePlayers().map(p=>p.id);auto.bingo=null;save();
+ round.practice=true;auto.on=true;auto.paused=false;auto.hole=h;auto.phase='intro';auto.prevScores=null;auto.prevOrder=[mePlayer().id];auto.bingo=null;save();
  say(tr('Auto play. Practice round.','Auto play. Practice round ito.'));scheduleAuto()}
 function pauseAuto(){if(!auto.on)return;auto.paused=!auto.paused;if(auto.paused){if(auto.timer)clearTimeout(auto.timer);auto.timer=0;say(tr('Auto play paused.','Naka-pause ang auto play.'))}
  else{say(tr('Auto play resumed.','Tuloy ang auto play.'));scheduleAuto()}paintAuto()}
+function trainSummary(){const shots=train.filter(t=>t&&(t.pick||t.suggested));if(!shots.length)return '';
+ const matched=shots.filter(t=>t.match).length,diff=shots.filter(t=>!t.match);
+ let s=tr('Training: '+matched+' of '+shots.length+' clubs matched the caddy.','Training: '+matched+' sa '+shots.length+' ang tugma sa caddy.');
+ if(diff.length)s+=' '+tr('Differed: ','Iba: ')+diff.slice(0,4).map(t=>'Hole '+t.hole+': '+t.pick+' (caddy suggested '+t.suggested+')').join('; ')+'.';
+ return s}
+function paintTrain(){const el=$('#trainSum');if(el)el.textContent=roundNote||''}
+let tapTimer=0;
+function flashTap(label){const tap=$('#tap');if(!tap)return;const text=String(label||'').replace(/\s+/g,' ').trim().slice(0,48);if(!text)return;tap.hidden=false;tap.textContent=text;if(tapTimer)clearTimeout(tapTimer);tapTimer=setTimeout(()=>{tap.hidden=true;tap.textContent=''},2200)}
+function paintCoach(){const box=$('#clubpick'),coach=$('#coach');if(!box)return;if(!opts.sim){box.innerHTML='';if(coach)coach.textContent='';coachSig='';return}
+ const g=greenAt(hole),y=g&&pos?Math.round(dist(pos,g)*1.09361):null,sug=y==null?null:clubFor(y),name=sug?sug[0]:'',hz=nearestHazard();
+ const sig=[hole,y,name,trainPick,hz&&hz.label,opts.lang,opts.metric,clubs.map(c=>c[0]+c[1]).join(',')].join('|');
+ if(sig===coachSig)return;coachSig=sig;
+ box.innerHTML=clubs.map(c=>{const on=trainPick?c[0]===trainPick:c[0]===name;return `<button type="button" class="b b2${on?' picked':''}" data-pick="${hx(c[0])}">${hx(c[0])}</button>`}).join('');
+ if(!coach)return;
+ if(y==null)coach.textContent=tr('Pick a club, then hit. The caddy will compare it.','Pumili ng club, tapos tumira. Ikukumpara ng caddy.');
+ else{const shown=opts.metric?Math.round(y*M_PER_YD):y,u=opts.metric?(taglish()?'metro':'meters'):(taglish()?'yarda':'yards'),reaches=sug&&+sug[1]>=y-4;
+  const fit=y<=40?tr('Chip or putt from here.','Chip o putt na dito.'):reaches?tr(clubName(name)+' fits '+shown+' '+u+'. The shortest club that reaches.','Bagay ang '+clubName(name)+' sa '+shown+' '+u+'. Ito ang pinakamaikling club na aabot.'):tr(shown+' '+u+'. '+clubName(name)+' is the longest club. You will not reach, so play for position.',' '+shown+' '+u+'. '+clubName(name)+' ang pinakamahaba. Hindi aabot, so position lang.');
+  const warn=hz?tr(' '+hz.label+' nearby.',' Malapit ang '+hz.label+'.'):'';
+  const cmp=trainPick&&trainPick!==name?tr(' You picked '+trainPick+'. Caddy likes '+clubName(name)+'.',' Pinili mo ang '+trainPick+'. Caddy: '+clubName(name)+'.'):trainPick?tr(' That matches the caddy.',' Tugma sa caddy.'):tr(' Tap a club to choose. Leaving it uses the caddy club.',' I-tap ang club. Kung wala, caddy club.');
+  coach.textContent=fit+warn+cmp}}
 // ---------- render ----------
 function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#cname').textContent=cur;const mh=$('#mh');if(mh)mh.textContent=hole;
  const d=toGreen();$('#yd').textContent=d==null?'—':yds(d);$('#fb').textContent=d==null?'':unitShort();
  const tg=d!=null&&holeTargets(hole);$('#ydF').textContent=tg?yds(dist(pos,tg.front)):'—';$('#ydB').textContent=tg?yds(dist(pos,tg.back)):'—';
  $('#club').textContent=d==null?(C().greens[hole]?tr('Waiting for GPS…','Hintay GPS…'):tr('Set green on Map','I-set ang green sa Map')):(()=>{const y=Math.round(d*1.09361);return y<=40?'Chip / putt':clubFor(y)[0]})();
- const x=round.holes[hole]||{};$('#st').textContent=x.s||0;$('#pt').textContent=x.p||0;
+ const meNow=mePlayer(),locked=meNow&&group.scores[meNow.id]&&group.scores[meNow.id][hole];
+ const x=(locked&&locked.lock)?locked:(round.holes[hole]||{});$('#st').textContent=x.s||0;$('#pt').textContent=x.p||0;
  let h='<tr><th>H</th><th>Par</th><th>Score</th><th>Putts</th><th>+/-</th></tr>',run=0;
  for(let i=1;i<=18;i++){const y=round.holes[i]||{};if(y.s)run+=y.s-par(i);h+=`<tr class="${i===hole?'cur':''}"><td onclick="go(${i})">${i}</td><td><input type=number data-par=${i} value=${par(i)}></td><td><input type=number data-s=${i} value="${y.s||''}"></td><td><input type=number data-p=${i} value="${y.p??''}"></td><td>${y.s?relS(run):''}</td></tr>`;
   if(i===9){const f=[1,2,3,4,5,6,7,8,9].reduce((a,k)=>a+(round.holes[k]?.s||0),0);h+=`<tr><th>Out</th><th>${C().pars.slice(0,9).reduce((a,b)=>a+b,0)}</th><th>${f||''}</th><th></th><th></th></tr>`}}
@@ -290,7 +356,7 @@ function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#c
  $('#course').innerHTML=Object.keys(courses).map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
  $('#hist').innerHTML=hist.slice().reverse().map(r=>`<div class="card">${String(r.date||'').slice(0,10)} · ${hx(r.course)}${r.practice?' · practice':''}: <b>${r.s}</b> (${relS(r.rel)}) · ${r.putts} putts · ${r.n} holes</div>`).join('')||`<small>${tr('No rounds yet','Wala pang round')}</small>`;
  $('#ct').innerHTML=clubs.map((c,i)=>`<tr><td><input data-cn=${i} value="${hx(c[0])}" style="width:90px"></td><td><input type=number data-cy=${i} value=${clubShown(c[1])} style="width:90px"></td><td><button class="b b2" style="min-height:40px;padding:4px 12px" onclick="clubs.splice(${i},1);save();render()">✕</button></td></tr>`).join('');
- $('#autoread').checked=opts.autoread;drawGreens();showMissing();xircleStatus();paintChrome();applyLang();showSplit();paintGroup();paintAuto()}
+ $('#autoread').checked=opts.autoread;drawGreens();showMissing();xircleStatus();paintChrome();applyLang();showSplit();paintGroup();paintAuto();paintCoach();paintFlight();paintTrain()}
 function paintChrome(){const m=!!opts.metric;
  for(const id of ['uYd','sYd']){const b=$('#'+id);if(b){b.classList.toggle('on',!m);b.setAttribute('aria-pressed',!m?'true':'false')}}
  for(const id of ['uM','sM']){const b=$('#'+id);if(b){b.classList.toggle('on',m);b.setAttribute('aria-pressed',m?'true':'false')}}
@@ -336,10 +402,20 @@ $('#countSim').onchange=e=>{opts.countSim=e.target.checked;save()};
 $('#simWalk').onclick=walkSim;$('#simHit').onclick=hitSim;$('#simGreen').onclick=jumpGreen;$('#simNext').onclick=nextTee;
 if($('#autoPlay'))$('#autoPlay').onclick=()=>{if(auto.on)stopAuto(false);else startAuto()};
 if($('#autoPause'))$('#autoPause').onclick=pauseAuto;
-document.addEventListener('click',e=>{const n=e.target.closest&&e.target.closest('[data-gcount] [data-n]');if(n){group.count=+n.dataset.n;save();render();return}const sp=e.target.closest&&e.target.closest('#autoSpeed [data-spd]');if(sp){auto.speed=sp.dataset.spd;paintAuto()}});
+document.addEventListener('click',e=>{
+ const pick=e.target.closest&&e.target.closest('[data-pick]');
+ if(pick){trainPick=pick.getAttribute('data-pick')||'';coachSig='';render();return}
+ const rm=e.target.closest&&e.target.closest('[data-fremove]');if(rm){removeFlightPlayer(rm.dataset.fremove);return}
+ const n=e.target.closest&&e.target.closest('[data-gcount] [data-n]');
+ if(n){if(settingsLocked())return;group.count=+n.dataset.n;save();render();if(flight&&iAmCaptain())publishFlightInfo();return}
+ const sp=e.target.closest&&e.target.closest('#autoSpeed [data-spd]');if(sp){auto.speed=sp.dataset.spd;paintAuto()}});
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.closest('#cresults')||b.closest('#xircle')||b.id==='upd')return;const label=(b.textContent||'').replace(/\s+/g,' ').trim();if(label)flashTap(label)},true);
 document.addEventListener('input',onGroupEdit);document.addEventListener('change',onGroupEdit);
 function onGroupEdit(e){const t=e.target;if(!t||!t.dataset)return;
- if(t.dataset.gs){if(e.type!=='change')return;const s=+t.value,h=+t.dataset.gh,pid=t.dataset.gs;const prev=pid==='p1'?(round.holes[h]&&round.holes[h].p):(group.scores[pid]&&group.scores[pid][h]&&group.scores[pid][h].p);writeScore(pid,h,s>0?s:0,prev||0);render();return}
+ if(t.dataset.gs){if(e.type!=='change')return;if(flight&&!flight.started)return;const s=+t.value,h=+t.dataset.gh,pid=t.dataset.gs;const prevSc=group.scores[pid]&&group.scores[pid][h];const me=mePlayer();const mine=!!(me&&pid===me.id);
+  const note=($('#glock')&&$('#glock').value||'').trim();const asLock=!!(flight&&iAmCaptain()&&note);
+  writeScore(pid,h,s>0?s:0,prevSc&&prevSc.p||0,{self:mine&&!asLock,lock:asLock,note:asLock?note:'',kind:asLock?'lock':mine?'self':'scorer',by:myIdSafe(),byName:asLock?'captain':(me&&me.name)||''});render();return}
+ if(settingsLocked())return;
  if(t.dataset.gf==='name')group.players[+t.dataset.pi].name=String(t.value).slice(0,24);
  else if(t.dataset.gf==='hcp'){if(e.type!=='change')return;group.players[+t.dataset.pi].hcp=Math.max(-10,Math.min(54,Math.round(+t.value||0)))}
  else if(t.dataset.gg==='game')group.game.type=t.value;
@@ -350,15 +426,15 @@ function onGroupEdit(e){const t=e.target;if(!t||!t.dataset)return;
  else if(t.dataset.gw==='partner'){const h=+t.dataset.gh,ps=activePlayers();group.wolf[h]={wolf:ps[(h-1)%4].id,partner:t.value||null}}
  else if(t.dataset.gb){const h=+t.dataset.gh;group.bbb[h]=Object.assign({},group.bbb[h]);group.bbb[h][t.dataset.gb]=t.value||null}
  else return;
- save();paintGroup()}
+ save();paintGroup();if(e.type==='change'&&flight&&iAmCaptain())publishFlightInfo()}
 $('#lang').onchange=()=>{opts.lang=$('#lang').value==='tl'?'tl':'en';save();pickVoice();missSig='';render();say(tr('English.','Taglish na.'))};
-$('#course').onchange=e=>{if(totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return render();cur=e.target.value;round=newRound();hole=1;save();render();if(map)fitGreens()};
+$('#course').onchange=e=>{if(settingsLocked())return render();if(totals().n&&!confirm(tr('Switch course? Current round card stays saved only if you Finish it first.','Lipat ng course? I-finish muna ang card kung gusto mong i-save.')))return render();cur=e.target.value;round=newRound();hole=1;save();render();if(map)fitGreens();if(flight&&iAmCaptain())publishFlightInfo()};
 $('#addc').onclick=()=>{const n=$('#newc').value.trim();if(!n)return;courses[n]=courses[n]||{pars:Array(18).fill(4),greens:{},shapes:[]};cur=n;round=newRound();hole=1;$('#newc').value='';save();render()};
-$('#fin').onclick=()=>{stopAuto(true);const t=totals();if(!t.n)return say(tr('Nothing to save yet.','Wala pang i-save.'));const practice=!!(round.practice||opts.sim);const bet=betSpeech();
+$('#fin').onclick=()=>{stopAuto(true);const t=totals();if(!t.n)return say(tr('Nothing to save yet.','Wala pang i-save.'));const practice=!!(round.practice||opts.sim);const bet=betSpeech();const sum=trainSummary();
  const rec={...t,course:cur,date:round.date,holes:round.holes,practice};if(group.count>1)rec.side={game:group.game.type};
- if(!practice||($('#keepPractice')&&$('#keepPractice').checked)){hist.push(rec);say(tr(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`,`Saved na ang round: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`)+bet)}
- else say(tr('Practice round. Left out of history.','Practice round. Hindi kasama sa history.')+bet);
- round=newRound();hole=1;save();render();maybeXircle()};
+ if(!practice||($('#keepPractice')&&$('#keepPractice').checked)){hist.push(rec);say(tr(`Round saved: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`,`Saved na ang round: ${t.s}, ${relTxt(t.rel)}, ${t.putts} putts.`)+bet+(sum?' '+sum:''))}
+ else say(tr('Practice round. Left out of history.','Practice round. Hindi kasama sa history.')+bet+(sum?' '+sum:''));
+ round=newRound();roundNote=sum;hole=1;save();render();maybeXircle()};
 $('#newr').onclick=()=>{if(confirm(tr('Clear the current card?','Burahin ang card na ito?'))){round=newRound();hole=1;save();render()}};
 // ---------- map ----------
 let map,me,gLayer,osmLayer;
@@ -1067,7 +1143,8 @@ $('#vattest').onclick=e=>{const b=e.target.closest('[data-attest]');if(!b||!tour
  const ev={t:'attest',playerId,by:tour.name,name:tour.name};if(tstate)apply({...ev,id:myId});drawLB();pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});say(tr('Card attested.','Na-attest na ang card.'))};
 $('#leave').onclick=()=>{tour=null;es?.close();resetReplay();save();$('#tjoin').style.display='block';$('#tin').style.display='none';const pb=$('#pracbox');if(pb)pb.style.display='none';const flag=$('#tpracflag');if(flag)flag.hidden=true;const vf=$('#vflag');if(vf)vf.hidden=true;const vb=$('#virtbox');if(vb)vb.style.display='none';const rb=$('#replaybox');if(rb)rb.style.display='none';const note=$('#lbnote');if(note)note.textContent=''};
 $('#share').onclick=()=>{if(!tour)return;const u=location.origin+location.pathname+'?t='+tour.code+(tour.practice?'&p=1':'')+(tour.virtual?'&v=1':'');const title=tour.practice?'Join my xLooper practice tournament':tour.virtual?'Join my xLooper online tournament':'Join my xLooper tournament';navigator.share?navigator.share({title,text:(tour.practice?'Practice tournament code ':'Tournament code ')+tour.code,url:u}).catch(()=>{}):(navigator.clipboard.writeText(u),say(tr('Link copied.','Na-copy ang link.')))};
-const qparams=new URLSearchParams(location.search);const qt=qparams.get('t');if(qparams.get('p')==='1'){const box=$('#tpractice');if(box)box.checked=true}
+const qparams=new URLSearchParams(location.search);const qt=qparams.get('t');const qg=qparams.get('g');if(qparams.get('p')==='1'){const box=$('#tpractice');if(box)box.checked=true}
+if(qg){const code=String(qg).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);const inp=$('#flightCode');if(inp)inp.value=code;if(code.length>=4)setTimeout(()=>say(tr('Group code '+(code.split('').join(' '))+'.','Group code '+(code.split('').join(' '))+'.')),500)}
 if(qparams.get('v')==='1'){const box=$('#tvirtual');if(box)box.checked=true;const vb=$('#tvirtualbox');if(vb)vb.style.display='block';if($('#tstart')&&!$('#tstart').value)$('#tstart').value=todayKey();if($('#tend')&&!$('#tend').value)$('#tend').value=addDaysKey(6)}
 if(qt){$('#tcode').value=qt;if(!tour||tour.code!==qt.toUpperCase()){$$('nav button')[3].click();$('#tname').focus()}}
 const qCourse=new URLSearchParams(location.search).get('course');if(qCourse)previewCourse(location.search+location.hash);
@@ -1119,7 +1196,75 @@ $('#xi-set').onclick=()=>{if(xstate.signup&&!xstate.signup.sent)return retryXirc
 $('#xi-join').onclick=()=>submitXircle();
 $('#xi-later').onclick=()=>dismissXircle();
 $('#xircle').onclick=e=>{if(e.target.id==='xircle')dismissXircle()};
-render();connect();
+let fes,fseen=new Set();
+function flightTopic(code){return 'xlooper-flight-'+String(code||'').toLowerCase()}
+function flightPub(ev){if(!flight||!flight.code)return Promise.resolve();return fetch(NTFY+flightTopic(flight.code),{method:'POST',body:JSON.stringify({...ev,fromId:myIdSafe(),ts:Date.now()})}).catch(()=>{})}
+function flightSnapshot(){const c=C();return {captain:flight.captain,started:!!flight.started,round:flight.round||1,course:cur,pars:(c.pars||[]).slice(0,18).map(n=>+n||4),count:group.count,game:{type:group.game.type,stake:group.game.stake,currency:group.game.currency,useHcp:!!group.game.useHcp,presses:!!group.game.presses},players:group.players.map(p=>({id:p.id,name:p.name,hcp:p.hcp,owner:p.owner||''}))}}
+function publishFlightInfo(){if(!flight||flight.captain!==myIdSafe())return;flightPub(Object.assign({t:'finfo'},flightSnapshot()))}
+function flightPubScore(pid,h,sc){if(!flight)return;flightPub({t:'fscore',round:flight.round||1,pid,hole:+h,s:sc?+sc.s||0:0,p:sc?+sc.p||0:0,by:sc?sc.by||'':'',byName:sc?sc.byName||'':'',self:!!(sc&&sc.self),lock:!!(sc&&sc.lock),note:(sc&&sc.note)||'',kind:sc?(sc.kind||''):''})}
+function markMe(){const id=myIdSafe();group.players.forEach(p=>{p.you=!!(id&&p.owner===id)});if(!flight&&!group.players.some(p=>p.you))group.players[0].you=true}
+function ensureFlightCourse(name,pars){name=String(name||'').slice(0,60);if(!name)return;const incoming=Array.isArray(pars)?pars.slice(0,18).map(n=>+n||4):null;
+ if(!courses[name])courses[name]={pars:incoming&&incoming.length?incoming:Array(18).fill(4),greens:{}};
+ else if(incoming&&incoming.length&&!iAmCaptain())courses[name].pars=incoming;
+ if(name!==cur){cur=name;if(!round||round.course!==name)round={course:name,date:new Date().toISOString(),holes:{},practice:!!opts.sim};hole=1}}
+function applyFlightInfo(ev){if(!flight||!ev||ev.fromId===myIdSafe())return;if(iAmCaptain()&&ev.captain&&ev.captain!==myIdSafe())return;
+ const prev=+flight.round||1,next=+ev.round||prev;if(next!==prev){group.scores={};group.wolf={};group.bbb={}}
+ flight.captain=String(ev.captain||flight.captain||'');flight.started=!!ev.started;flight.round=next;
+ if(ev.course)ensureFlightCourse(ev.course,ev.pars);
+ if(ev.count)group.count=Math.min(4,Math.max(1,Math.round(+ev.count)));
+ if(ev.game&&typeof ev.game==='object'){const types=['none','skins','nassau','match','stroke','wolf','bbb'];
+  if(types.includes(ev.game.type))group.game.type=ev.game.type;if(ev.game.stake!=null&&isFinite(+ev.game.stake))group.game.stake=Math.max(0,+ev.game.stake);
+  if(ev.game.currency==='$'||ev.game.currency==='₱')group.game.currency=ev.game.currency;group.game.useHcp=!!ev.game.useHcp;group.game.presses=!!ev.game.presses}
+ if(Array.isArray(ev.players))ev.players.slice(0,4).forEach((p,i)=>{if(!p||!group.players[i])return;if(p.id)group.players[i].id=String(p.id).slice(0,8);if(p.name)group.players[i].name=String(p.name).slice(0,24);if(p.hcp!=null&&isFinite(+p.hcp))group.players[i].hcp=Math.max(-10,Math.min(54,Math.round(+p.hcp)));group.players[i].owner=p.owner?String(p.owner).slice(0,40):''});
+ markMe();save();render()}
+function onFlightJoin(ev){if(!flight||!iAmCaptain())return;const owner=String(ev.owner||ev.fromId||'');if(!owner||owner===myIdSafe())return;
+ let p=group.players.find(x=>x.owner===owner);
+ if(!p){p=activePlayers().find(x=>!x.owner)||group.players.find(x=>!x.owner);if(!p)return;const idx=group.players.indexOf(p);if(idx+1>group.count)group.count=idx+1;p.owner=owner}
+ if(ev.name)p.name=String(ev.name).slice(0,24);if(ev.hcp!=null&&isFinite(+ev.hcp))p.hcp=Math.max(-10,Math.min(54,Math.round(+ev.hcp)));
+ save();publishFlightInfo();render()}
+function onFlightScore(ev){if(!flight)return;if(ev.round&&flight.round&&+ev.round!==+flight.round)return;
+ writeScore(ev.pid,+ev.hole,+ev.s||0,+ev.p||0,{by:ev.by,byName:ev.byName,self:!!ev.self,lock:!!ev.lock,note:ev.note||'',kind:ev.kind||'',echo:true});render()}
+function onFlightRemove(ev){const owner=String(ev.owner||'');
+ if(owner&&owner===myIdSafe()){group.players.forEach(p=>{if(p.owner===owner)p.owner='';p.you=false});group.players[0].you=true;flight=null;try{fes&&fes.close()}catch{}fes=null;save();render();say(tr('You were removed from the group.','Tinanggal ka sa group.'));return}
+ if(owner)group.players.forEach(p=>{if(p.owner===owner)p.owner=''});if(ev.captain&&flight)flight.captain=String(ev.captain);save();render()}
+function onFlightEvent(ev){if(!ev)return;if(ev.t==='finfo')applyFlightInfo(ev);else if(ev.t==='fjoin')onFlightJoin(ev);else if(ev.t==='fscore')onFlightScore(ev);else if(ev.t==='fremove'||ev.t==='fleave')onFlightRemove(ev)}
+function connectFlight(){if(!flight||!flight.code)return;try{fes&&fes.close()}catch{}fseen=new Set();fes=new EventSource(NTFY+flightTopic(flight.code)+'/sse?since=all');
+ fes.onmessage=e=>{let d,ev;try{d=JSON.parse(e.data);if(d.event!=='message'||fseen.has(d.id))return;fseen.add(d.id);ev=JSON.parse(d.message)}catch{return}if(!ev||ev.fromId===myIdSafe())return;onFlightEvent(ev)}}
+function createFlight(){const me=mePlayer();me.owner=myId;me.you=true;flight={code:tourCode(),captain:myId,started:false,round:1};save();connectFlight();publishFlightInfo();render();say(tr('Group '+flight.code+'. You are the captain.','Group '+flight.code+'. Captain ka.'))}
+function joinFlight(raw){const code=String(raw||($('#flightCode')&&$('#flightCode').value)||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);if(code.length<4)return say(tr('Enter the group code.','Ilagay ang group code.'));
+ const me=mePlayer();flight={code,captain:'',started:false,round:1};save();connectFlight();flightPub({t:'fjoin',owner:myId,name:me.name,hcp:me.hcp});render();say(tr('Joining group '+code+'.','Sumasali sa group '+code+'.'))}
+function startFlight(){if(!flight||!iAmCaptain())return;flight.started=true;save();publishFlightInfo();render();say(tr('Round started.','Nagsimula na ang round.'))}
+function transferFlight(){if(!flight||!iAmCaptain())return;const next=group.players.find(p=>p.owner&&p.owner!==myId);if(!next)return say(tr('Nobody else has joined.','Wala pang ibang sumali.'));flight.captain=next.owner;save();publishFlightInfo();render();say(tr('Captain is now '+next.name+'.','Captain na si '+next.name+'.'))}
+function leaveFlight(){if(!flight)return;const next=iAmCaptain()?group.players.find(p=>p.owner&&p.owner!==myId):null;if(next)flight.captain=next.owner;const snap=flightSnapshot();flightPub({t:'fleave',owner:myId,captain:flight.captain});if(next)flightPub(Object.assign({t:'finfo'},snap));
+ group.players.forEach(p=>{if(p.owner===myId)p.owner='';p.you=false});group.players[0].you=true;flight=null;try{fes&&fes.close()}catch{}fes=null;save();render();say(tr('Left the group.','Umalis ka sa group.'))}
+function removeFlightPlayer(pid){if(!flight||!iAmCaptain())return;const p=group.players.find(x=>x.id===pid);if(!p||!p.owner||p.owner===myId)return;const owner=p.owner;p.owner='';save();flightPub({t:'fremove',owner,pid});publishFlightInfo();render()}
+function lockCurrentHole(){if(!flight||!iAmCaptain())return say(tr('Only the captain can lock a score.','Captain lang ang pwedeng mag-lock.'));const note=($('#glock').value||'').trim();if(!note)return say(tr('Add a note for the override.','Lagyan ng note ang override.'));
+ let n=0;activePlayers().forEach(p=>{const sc=group.scores[p.id]&&group.scores[p.id][hole];if(!sc||!(+sc.s>0))return;writeScore(p.id,hole,sc.s,sc.p||0,{lock:true,note,self:false,kind:'lock',by:myId,byName:'captain'});n++});
+ if(!n)return say(tr('Enter the hole score first.','Ilagay muna ang score.'));render();say(tr('Captain locked hole '+hole+'. '+note,'Na-lock ang hole '+hole+'. '+note))}
+function shareFlight(){if(!flight)return;const u=location.origin+location.pathname+'?g='+flight.code;const title='Join my xLooper group';
+ if(navigator.share)navigator.share({title,text:'Group code '+flight.code,url:u}).catch(()=>{});
+ else if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(()=>say(tr('Link copied.','Na-copy ang link.'))).catch(()=>say(u));
+ else say(u)}
+function paintFlight(){const off=$('#flightOff'),on=$('#flightOn');if(!off||!on)return;const live=!!(flight&&flight.code);off.hidden=!!live;on.hidden=!live;
+ const mini=$('#flightmini');if(mini)mini.textContent=!live||!opts.sim?'':(iAmCaptain()?tr('Captain','Captain'):tr('Player','Player'))+' · '+flight.code+(flight.started?tr(' · started',' · nagsimula'):tr(' · waiting',' · hinihintay'));
+ const lockRow=$('#glockrow');if(lockRow)lockRow.hidden=!(live&&iAmCaptain());
+ const lock=settingsLocked();$$('[data-gf],[data-gg],[data-gw],[data-gb]').forEach(el=>{el.disabled=!!lock});$$('[data-gcount] button').forEach(el=>{el.disabled=!!lock});
+ const course=$('#course');if(course)course.disabled=!!(live&&lock);const open=scoringOpen();$$('[data-gs]').forEach(el=>{el.disabled=!open});
+ if(!live)return;const role=$('#flightRole');if(role)role.textContent=iAmCaptain()?tr('Captain','Captain'):tr('Player','Player');
+ const cd=$('#flightCd');if(cd)cd.textContent=flight.code;
+ const stat=$('#flightStat');if(stat)stat.textContent=flight.started?tr('Round started. Enter scores for the group. Your own score wins unless the captain locks it.','Nagsimula na. Pwedeng mag-score. Ang sariling score ang mananalo maliban kung i-lock ng captain.'):tr('Waiting for the captain to start.','Hinihintay ang start ng captain.');
+ const start=$('#flightStart');if(start)start.hidden=!iAmCaptain()||!!flight.started;const transfer=$('#flightTransfer');if(transfer)transfer.hidden=!iAmCaptain();
+ const roster=$('#flightRoster');if(roster)roster.innerHTML=activePlayers().map(p=>{const tag=p.owner?(p.owner===myIdSafe()?tr('you','ikaw'):tr('joined','sumali')):tr('placeholder','placeholder');
+  const rm=iAmCaptain()&&p.owner&&p.owner!==myIdSafe()?`<button type="button" class="b b2" data-fremove="${hx(p.id)}" style="min-height:36px;font-size:14px;flex:0 0 auto">Remove</button>`:'';
+  return `<div class="grow"><span>${hx(p.name)} <small>${tag}</small></span>${rm}</div>`}).join('')}
+if($('#flightCreate'))$('#flightCreate').onclick=createFlight;
+if($('#flightJoin'))$('#flightJoin').onclick=()=>joinFlight($('#flightCode').value);
+if($('#flightStart'))$('#flightStart').onclick=startFlight;
+if($('#flightTransfer'))$('#flightTransfer').onclick=transferFlight;
+if($('#flightLeave'))$('#flightLeave').onclick=leaveFlight;
+if($('#flightShare'))$('#flightShare').onclick=shareFlight;
+if($('#glockBtn'))$('#glockBtn').onclick=lockCurrentHole;
+render();connect();if(flight)connectFlight();
 maybeXircle();
 function showUpdate(){const el=$('#upd');if(!el)return;el.hidden=false;el.onclick=()=>location.reload()}
 if('serviceWorker'in navigator){let sawControl=!!navigator.serviceWorker.controller,readyForUpdate=sawControl;
