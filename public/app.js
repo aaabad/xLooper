@@ -1,4 +1,4 @@
-// xLooper v0.16 – voice golf caddy PWA
+// xLooper v0.17 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -226,7 +226,7 @@ function paintGroup(){if(!window.XLGames)return;pullP1();
  $$('[data-gg="presses"]').forEach(el=>{el.checked=!!group.game.presses});
  $$('.pressrow').forEach(el=>{el.style.display=group.game.type==='nassau'?'':'none'});
  const table=$('#ggrid');
- if(table){const ps=activePlayers();if(ps.length<2)table.innerHTML='';else{let h='<tr><th>H</th>'+ps.map(p=>`<th>${hx(p.name)}</th>`).join('')+'</tr>';
+ if(table){const ps=activePlayers();if(ps.length<2)table.innerHTML='';else{let h='<tr><th>H</th>'+ps.map(p=>`<th>${chatName(personChatId(p),p.name)}</th>`).join('')+'</tr>';
   for(let i=1;i<=18;i++){h+=`<tr class="${i===hole?'cur':''}"><td onclick="go(${i})">${i}</td>`;ps.forEach(p=>{const sc=group.scores[p.id]&&group.scores[p.id][i];const mark=whoMark(sc);h+=`<td><input type="number" min="1" max="20" data-gs="${p.id}" data-gh="${i}" value="${sc&&sc.s?sc.s:''}" style="width:52px">${mark?`<small class="who">${hx(mark)}</small>`:''}</td>`});h+='</tr>'}
   table.innerHTML=h}}
  const now=$('#nowscores');if(now){if(!opts.sim||activePlayers().length<2)now.textContent='';else now.textContent='Hole '+hole+' · '+activePlayers().map(p=>{const sc=group.scores[p.id]&&group.scores[p.id][hole];const mark=whoMark(sc);return p.name+': '+(sc&&sc.s?sc.s:'–')+(mark?' ('+mark+')':'')}).join(' · ')}
@@ -360,7 +360,7 @@ function render(){$('#hn').textContent=hole;$('#hp').textContent=par(hole);$('#c
  $('#hist').innerHTML=hist.slice().reverse().map(r=>`<div class="card">${String(r.date||'').slice(0,10)} · ${hx(r.course)}${r.practice?' · practice':''}: <b>${r.s}</b> (${relS(r.rel)}) · ${r.putts} putts · ${r.n} holes</div>`).join('')||`<small>${tr('No rounds yet','Wala pang round')}</small>`;
  paintMyCourses();
  $('#ct').innerHTML=clubs.map((c,i)=>`<tr><td><input data-cn=${i} value="${hx(c[0])}" style="width:90px"></td><td><input type=number data-cy=${i} value=${clubShown(c[1])} style="width:90px"></td><td><button class="b b2" style="min-height:40px;padding:4px 12px" onclick="clubs.splice(${i},1);save();render()">✕</button></td></tr>`).join('');
- $('#autoread').checked=opts.autoread;drawGreens();showMissing();xircleStatus();paintChrome();applyLang();showSplit();paintGroup();paintAuto();paintCoach();paintFlight();paintTrain()}
+ $('#autoread').checked=opts.autoread;drawGreens();showMissing();xircleStatus();paintChrome();applyLang();showSplit();paintGroup();paintAuto();paintCoach();paintFlight();paintTrain();chatTick()}
 function paintChrome(){const m=!!opts.metric;
  for(const id of ['uYd','sYd']){const b=$('#'+id);if(b){b.classList.toggle('on',!m);b.setAttribute('aria-pressed',!m?'true':'false')}}
  for(const id of ['uM','sM']){const b=$('#'+id);if(b){b.classList.toggle('on',m);b.setAttribute('aria-pressed',m?'true':'false')}}
@@ -389,7 +389,7 @@ function applyLang(){document.documentElement.lang=taglish()?'fil':'en';const se
  const sh=$('#searchhint');if(sh)sh.textContent=tr('Works from home. No GPS needed. Find my course, on the caddy, is for when you are standing on the course.','Pwede sa bahay. Hindi kailangan ng GPS. Course ko (GPS), sa caddy, kapag nandoon ka na sa course.')}
 window.go=go;
 // ---------- events ----------
-$$('nav button').forEach(b=>b.onclick=()=>{if(b.dataset.s==='map'&&!courseSaved(cur))return needDownload(cur);$$('nav button,section').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#s-'+b.dataset.s).classList.add('on');if(b.dataset.s==='map')initMap()});
+$$('nav button').forEach(b=>b.onclick=()=>{if(b.dataset.s==='map'&&!courseSaved(cur))return needDownload(cur);$$('nav button,section').forEach(x=>x.classList.remove('on'));b.classList.add('on');$('#s-'+b.dataset.s).classList.add('on');if(b.dataset.s==='map')initMap();if(b.dataset.s==='chat'){chatSig='';paintChats()}});
 $('#prev').onclick=()=>go(hole-1);$('#next').onclick=()=>go(hole+1);$('#bYd').onclick=sayYardage;$('#bClub').onclick=sayClub;$('#bShot').onclick=markShot;$('#bScoreQ').onclick=sayScore;
 $('#mic').onclick=()=>listen(command);$('#bMsgs').onclick=()=>readMsgs(true);$('#bSay').onclick=()=>voiceMsg();
 $$('[data-k]').forEach(b=>b.onclick=()=>{if(!allowPlay())return;const x=round.holes[hole]||{s:0,p:0};if(b.dataset.k==='s'){x.s=Math.max(0,(x.s||0)+ +b.dataset.d)}else x.p=Math.max(0,(x.p||0)+ +b.dataset.d);round.holes[hole]=x;if(!x.s)delete round.holes[hole];save();render();postScore(hole)});
@@ -407,6 +407,7 @@ $('#simWalk').onclick=walkSim;$('#simHit').onclick=hitSim;$('#simGreen').onclick
 if($('#autoPlay'))$('#autoPlay').onclick=()=>{if(auto.on)stopAuto(false);else startAuto()};
 if($('#autoPause'))$('#autoPause').onclick=pauseAuto;
 document.addEventListener('click',e=>{
+ const chatBtn=e.target.closest&&e.target.closest('[data-chat]');if(chatBtn){openChatWith(chatBtn.getAttribute('data-chat'),chatBtn.getAttribute('data-chatname'));return}
  const del=e.target.closest&&e.target.closest('[data-del]');if(del){deleteSaved(del.getAttribute('data-del'));return}
  const saved=e.target.closest&&e.target.closest('[data-saved]');if(saved){useSaved(saved.getAttribute('data-saved'),!!opts.sim);return}
  const pick=e.target.closest&&e.target.closest('[data-pick]');
@@ -596,7 +597,7 @@ async function downloadTiles(name){if(navigator.webdriver)return;const c=courses
  async function one(){while(queue.length){const url=queue.shift();try{const r=await fetch(url,{signal:AbortSignal.timeout(8000)});if(r.ok){const buf=await r.arrayBuffer();bytes+=buf.byteLength;ok++;if(cache)await cache.put(url,new Response(buf,{headers:{'Content-Type':'image/jpeg'}}))}}catch{}done++;if(done===urls.length||done%8===0)showProg(0.35+0.65*(done/urls.length),tr('Map '+done+'/'+urls.length,'Map '+done+'/'+urls.length))}}
  try{await Promise.all([one(),one(),one(),one()])}catch{}await setTileNet(false);tileMeta[name]={count:ok,bytes,urls};try{await idbPut({name,course:courses[name],bytes:JSON.stringify(courses[name]||{}).length,tiles:tileMeta[name],savedAt:Date.now()})}catch{}paintMyCourses();showProg(1,tr('Saved on phone','Naka-save sa phone'));hideProgSoon()}
 let askBanner=null;
-function paintFriendAsk(){const el=$('#friendAsk');if(!el)return;if(!askBanner){el.hidden=true;el.innerHTML='';return}el.hidden=false;el.innerHTML='<b>'+hx(tr('A friend asked for this course','May kaibigan na humiling'))+'</b><div>'+hx(askBanner.name)+'</div><button type="button" class="b" id="askYes">'+hx(tr('Approve and send','I-approve at ipadala'))+'</button>';const b=$('#askYes');if(b)b.onclick=()=>approveAsk()}
+function paintFriendAsk(){const el=$('#friendAsk');if(!el)return;if(!askBanner){el.hidden=true;el.innerHTML='';return}el.hidden=false;const msg=askBanner.from?`<button type="button" class="b b2" data-chat="${hx(askBanner.from)}" data-chatname="${hx(tr('Friend','Kaibigan'))}">${hx(tr('Message','Message'))}</button>`:'';el.innerHTML='<b>'+hx(tr('A friend asked for this course','May kaibigan na humiling'))+'</b><div>'+hx(askBanner.name)+'</div><div class="row"><button type="button" class="b" id="askYes">'+hx(tr('Approve and send','I-approve at ipadala'))+'</button>'+msg+'</div>';const b=$('#askYes');if(b)b.onclick=()=>approveAsk()}
 function paintMyCourses(){const list=$('#mylist');if(!list)return;const names=[...phoneSaved].filter(n=>courses[n]&&!courses[n].needsDownload);const empty=$('#myempty');if(empty)empty.hidden=names.length>0;const upd=$('#dlupdate');if(upd)upd.hidden=!(courseSaved(cur)&&C()&&C().osmId);list.innerHTML=names.map(n=>{const c=courses[n]||{};const tiles=tileMeta[n]||{};const size=fmtBytes(JSON.stringify(c).length+(+tiles.bytes||0));const mark=markedLine(c);return '<div class="mycourse"><button type="button" class="b b2'+(n===cur?' picked':'')+'" data-saved="'+hx(n)+'">'+hx(c.name||n)+' · '+hx(size)+(mark?'<br><small>'+hx(mark)+'</small>':'')+'</button><button type="button" class="b b2 del" data-del="'+hx(n)+'">Delete</button></div>'}).join('');const sim=$('#simlist');if(sim){sim.innerHTML=names.map(n=>'<button type="button" class="b b2" data-saved="'+hx(n)+'" style="display:block;width:100%;margin:6px 0;min-height:48px;font-size:16px">'+hx((courses[n]&&(courses[n].name||n))||n)+'</button>').join('');const se=$('#simempty');if(se)se.hidden=names.length>0}paintFriendAsk()}
 async function deleteSaved(name){if(!name||!courses[name])return;if(!confirm(tr('Delete '+name+' from this phone?','Burahin si '+name+' sa phone?')))return;const urls=(tileMeta[name]&&tileMeta[name].urls)||[];phoneSaved.delete(name);delete tileMeta[name];delete courses[name];try{await idbDel(name)}catch{}if(urls.length&&'caches' in window){try{const cache=await caches.open('xl-tiles');for(const u of urls)await cache.delete(u)}catch{}}if(!courses[cur]){const next=[...phoneSaved].find(k=>courses[k]);if(next)cur=next;else{courses['My Course']={pars:Array(18).fill(4),greens:{},source:'local'};cur='My Course';phoneSaved.add('My Course');void persistOffline('My Course')}round=newRound();hole=1}save();render();say(tr(name+' deleted from this phone.',name+' binura sa phone.'))}
 function savedTail(){return ' '+tr('Saved on phone.','Naka-save sa phone.')}
@@ -993,16 +994,16 @@ function connect(){if(!tour)return;resetReplay();$('#tjoin').style.display='none
   const k=apply(ev);$('#ttitle').textContent=tstate.name;paintVirtual();drawLB();drawMsgs();if(k==='msg'&&live&&opts.autoread&&ev.id!==myId&&Date.now()-(ev.ts||0)<6e4)readMsgs(false)};
  es.onerror=()=>$('#tstat').textContent='Reconnecting… (scores still save locally)'}
 function drawLB(){if(!tstate)return;
- if(!tstate.virtual){const pars=tstate.pars,rows=Object.values(tstate.players).map(p=>{const hs=Object.entries(p.scores).filter(([,v])=>scoreVal(v)>0);const s=hs.reduce((a,[,v])=>a+scoreVal(v),0),pr=hs.reduce((a,[h])=>a+(pars[h-1]||4),0);return{n:p.name,s,rel:s-pr,thru:hs.length}}).sort((a,b)=>(b.thru>0)-(a.thru>0)||a.rel-b.rel||b.thru-a.thru);
-  $('#lb').innerHTML='<tr><th>#</th><th>Player</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>'+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${esc(r.n)}</td><td><b>${r.thru?relS(r.rel):'-'}</b></td><td>${r.thru}</td><td>${r.s||''}</td></tr>`).join('');return}
+ if(!tstate.virtual){const pars=tstate.pars,rows=Object.entries(tstate.players).map(([id,p])=>{const hs=Object.entries(p.scores).filter(([,v])=>scoreVal(v)>0);const s=hs.reduce((a,[,v])=>a+scoreVal(v),0),pr=hs.reduce((a,[h])=>a+(pars[h-1]||4),0);return{id,n:p.name,s,rel:s-pr,thru:hs.length}}).sort((a,b)=>(b.thru>0)-(a.thru>0)||a.rel-b.rel||b.thru-a.thru);
+  $('#lb').innerHTML='<tr><th>#</th><th>Player</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>'+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${chatName(r.id,r.n)}</td><td><b>${r.thru?relS(r.rel):'-'}</b></td><td>${r.thru}</td><td>${r.s||''}</td></tr>`).join('');return}
  const fmt=tstate.format==='gross'||tstate.format==='stableford'?tstate.format:'net';
- const rows=sortRows(Object.values(tstate.players).map(p=>playerRow(p,fmt,tstate.allowance,tstate.maxIndex,tstate.pars)),fmt);
+ const rows=sortRows(Object.entries(tstate.players).map(([id,p])=>({id,...playerRow(p,fmt,tstate.allowance,tstate.maxIndex,tstate.pars)})),fmt);
  const mark=r=>r.attested?' ✓':'';
  let head,cell;
  if(fmt==='stableford'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>Pts</th><th>Thru</th></tr>';cell=r=>`<td><b>${r.thru?r.points:''}</b></td><td>${r.thru}</td>`}
  else if(fmt==='gross'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.grossToPar):'-'}</b></td><td>${r.thru}</td><td>${r.gross||''}</td>`}
  else{head='<tr><th>#</th><th>Player</th><th>Course</th><th>Net</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.netToPar):'-'}</b></td><td>${r.thru}</td><td>${r.net||''}</td>`}
- $('#lb').innerHTML=head+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${esc(r.n)}${mark(r)}</td><td style="text-align:left">${esc(r.course||'')}</td>${cell(r)}</tr>`).join('');
+ $('#lb').innerHTML=head+rows.map((r,i)=>`<tr><td>${i+1}</td><td style="text-align:left">${chatName(r.id,r.n)}${mark(r)}</td><td style="text-align:left">${esc(r.course||'')}</td>${cell(r)}</tr>`).join('');
  drawAttest()}
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function drawMsgs(){$('#msgs').innerHTML=msgs.map(m=>`<div class="msg ${m.ann?'ann':''}"><b>${m.ann?'📢 ':''}${esc(m.from)}</b> <small>${new Date(m.ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}</small><br>${esc(m.text)}</div>`).join('');$('#msgs').scrollTop=1e9}
@@ -1091,7 +1092,7 @@ function paintVirtual(){const on=!!(tour&&tour.virtual);const flag=$('#vflag');i
  fillVirtInputs();paintHcp()}
 function drawAttest(){const el=$('#vattest');if(!el)return;if(!tstate||!tour||!tour.virtual){el.innerHTML='';return}
  const others=Object.entries(tstate.players).filter(([id,p])=>id!==myId&&p.name);
- el.innerHTML=others.map(([id,p])=>`<div class="row" style="align-items:center"><span style="flex:2">${esc(p.name)}${p.course?' · '+esc(p.course):''}${p.attestedBy?' ✓ '+esc(p.attestedBy):''}</span><button type="button" class="b b2" data-attest="${esc(id)}" style="flex:0 0 auto;min-height:44px;font-size:16px;padding:8px 12px">Confirm</button></div>`).join('')||'<small>'+esc(tr('No other cards to attest yet.','Wala pang ibang card.'))+'</small>'}
+ el.innerHTML=others.map(([id,p])=>`<div class="row" style="align-items:center"><span style="flex:2">${chatName(id,p.name)}${p.course?' · '+esc(p.course):''}${p.attestedBy?' ✓ '+esc(p.attestedBy):''}</span><button type="button" class="b b2" data-attest="${esc(id)}" style="flex:0 0 auto;min-height:44px;font-size:16px;padding:8px 12px">Confirm</button></div>`).join('')||'<small>'+esc(tr('No other cards to attest yet.','Wala pang ibang card.'))+'</small>'}
 function saveVirtCourse(){if(!tour||!tour.virtual)return;applyVirtForm();paintHcp();
  const ev={t:'player',name:tour.name,...myCard()};if(tstate)apply({...ev,id:myId});drawLB();
  pub(tour.code,ev,myId,!!tour.practice).catch(()=>{});say(tr('Course handicap saved.','Naka-save ang course handicap.'))}
@@ -1143,7 +1144,7 @@ function boardHtml(players,flashId){
  if(fmt==='stableford'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>Pts</th><th>Thru</th></tr>';cell=r=>`<td><b>${r.thru?r.points:''}</b></td><td>${r.thru}</td>`}
  else if(fmt==='gross'){head='<tr><th>#</th><th>Player</th><th>Course</th><th>+/-</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.grossToPar):'-'}</b></td><td>${r.thru}</td><td>${r.gross||''}</td>`}
  else{head='<tr><th>#</th><th>Player</th><th>Course</th><th>Net</th><th>Thru</th><th>Tot</th></tr>';cell=r=>`<td><b>${r.thru?relS(r.netToPar):'-'}</b></td><td>${r.thru}</td><td>${r.net||''}</td>`}
- return {rows,html:head+rows.map((r,i)=>`<tr class="${r.id===flashId?'flash':''}"><td>${i+1}</td><td style="text-align:left">${esc(r.n)}${mark(r)}</td><td style="text-align:left">${esc(r.course||'')}</td>${cell(r)}</tr>`).join('')}}
+ return {rows,html:head+rows.map((r,i)=>`<tr class="${r.id===flashId?'flash':''}"><td>${i+1}</td><td style="text-align:left">${chatName(r.id,r.n)}${mark(r)}</td><td style="text-align:left">${esc(r.course||'')}</td>${cell(r)}</tr>`).join('')}}
 function resultsLine(rows){
  const played=(rows||[]).filter(r=>r.thru>0);
  if(!replayEvents||replayEvents.length<=1||!played.length)return tr('No hole scores to replay yet.','Wala pang score para i-replay.');
@@ -1204,6 +1205,7 @@ const qparams=new URLSearchParams(location.search);const qt=qparams.get('t');con
 if(qg){const code=String(qg).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);const inp=$('#flightCode');if(inp)inp.value=code;if(code.length>=4)setTimeout(()=>say(tr('Group code '+(code.split('').join(' '))+'.','Group code '+(code.split('').join(' '))+'.')),500)}
 if(qparams.get('v')==='1'){const box=$('#tvirtual');if(box)box.checked=true;const vb=$('#tvirtualbox');if(vb)vb.style.display='block';if($('#tstart')&&!$('#tstart').value)$('#tstart').value=todayKey();if($('#tend')&&!$('#tend').value)$('#tend').value=addDaysKey(6)}
 if(qt){$('#tcode').value=qt;if(!tour||tour.code!==qt.toUpperCase()){$$('nav button')[3].click();$('#tname').focus()}}
+const qc=qparams.get('chat');if(qc){const inp=$('#chatJoinCode');if(inp)inp.value=String(qc).trim();setTimeout(()=>joinChatCode(qc,true),600)}
 const qCourse=new URLSearchParams(location.search).get('course');if(qCourse)previewCourse(location.search+location.hash);
 $('#tname').value=tour?.name||L('pname','');$('#tname').onchange=e=>P('pname',e.target.value);
 // ---------- xircle signup ----------
@@ -1336,7 +1338,7 @@ function paintFlight(){const off=$('#flightOff'),on=$('#flightOn');if(!off||!on)
  const start=$('#flightStart');if(start)start.hidden=!iAmCaptain()||!!flight.started;const transfer=$('#flightTransfer');if(transfer)transfer.hidden=!iAmCaptain();
  const roster=$('#flightRoster');if(roster)roster.innerHTML=activePlayers().map(p=>{const tag=p.owner?(p.owner===myIdSafe()?tr('you','ikaw'):tr('joined','sumali')):tr('placeholder','placeholder');
   const rm=iAmCaptain()&&p.owner&&p.owner!==myIdSafe()?`<button type="button" class="b b2" data-fremove="${hx(p.id)}" style="min-height:36px;font-size:14px;flex:0 0 auto">Remove</button>`:'';
-  return `<div class="grow"><span>${hx(p.name)} <small>${tag}</small></span>${rm}</div>`}).join('')}
+  return `<div class="grow"><span>${chatName(personChatId(p),p.name)} <small>${tag}</small></span>${rm}</div>`}).join('')}
 if($('#flightCreate'))$('#flightCreate').onclick=createFlight;
 if($('#flightJoin'))$('#flightJoin').onclick=()=>joinFlight($('#flightCode').value);
 if($('#flightStart'))$('#flightStart').onclick=startFlight;
@@ -1349,7 +1351,120 @@ async function hydrateCourses(){let rows=[];try{rows=await idbAll()}catch{return
  for(const name of Object.keys(courses)){if(!courses[name]||courses[name].needsDownload)continue;phoneSaved.add(name);if(!seen.has(name)){void idbPut({name,course:courses[name],bytes:JSON.stringify(courses[name]).length,tiles:tileMeta[name]||{count:0,bytes:0,urls:[]},savedAt:Date.now()}).catch(()=>{})}}
  if(!courses[cur]){cur=Object.keys(courses)[0];changed=true}
  if(changed){save();if(!resultsLocked&&!loadingCourse)render();else paintMyCourses()}else paintMyCourses()}
+// ---------- chat (xircle/xlooper/<group>) ----------
+const chatES=new Map();
+let chatSig='',roomLogSig='',roomMemSig='',peopleSig='',chipLang='',chatFlushing=false;
+function myChatName(){try{const p=mePlayer();return (p&&p.name)||'Me'}catch(e){return 'Me'}}
+function personChatId(p){if(!p)return '';if(p.owner&&p.owner===myIdSafe())return '';if(p.you&&!p.owner)return '';return p.owner||p.id||''}
+function chatName(id,name){const n=esc(name||'');if(!id||id===myId)return n;return `<button type="button" class="linkish" data-chat="${esc(id)}" data-chatname="${esc(name||'')}">${n}</button>`}
+function chatCtx(){return {flightId:flight&&flight.code?'flight-'+flight.code:'',tourId:tour&&tour.code?(tour.practice?'prac-':'tour-')+tour.code:'',meId:myId}}
+function knownPeople(){const out=[],add=(id,name)=>{id=String(id||'').trim();if(!id||id===myId||out.some(p=>p.id===id))return;out.push({id,name:String(name||'Player').slice(0,24)})};
+ try{activePlayers().forEach(p=>{const id=personChatId(p);if(id)add(id,p.name)})}catch(e){}
+ if(tstate&&tstate.players)Object.entries(tstate.players).forEach(([id,p])=>add(id,p&&p.name));
+ try{Object.values(XLChat.load().groups||{}).forEach(g=>(g.members||[]).forEach(m=>add(m.id,m.name)))}catch(e){}
+ return out}
+function connectTopic(logical){if(!logical||!window.XLChat)return;const topic=XLChat.topicOf(logical);if(!topic||chatES.has(topic))return;let es;try{es=new EventSource(NTFY+topic+'/sse?since=all')}catch(e){return}
+ const seen=new Set();let live=false;es.addEventListener('open',()=>{live=true});
+ es.onmessage=e=>{let d,ev;try{d=JSON.parse(e.data);if(!d||d.event!=='message'||seen.has(d.id))return;seen.add(d.id);ev=JSON.parse(d.message)}catch(err){return}ingestChat(ev,live)};
+ chatES.set(topic,es)}
+function connectListed(db){connectTopic(XLChat.userRoom(myId));const ctx=chatCtx();XLChat.list(db,ctx).slice(0,12).forEach(g=>connectTopic(g.room));const open=db.groups&&db.groups[db.open];if(open&&!open.left)connectTopic(open.room)}
+let shellSig='';
+function syncShells(db){db=db||XLChat.load();const ctx=chatCtx(),me={id:myId,name:myChatName()},spec=[];
+ if(ctx.flightId)spec.push({id:ctx.flightId,name:'Flight '+flight.code,kind:'flight',admin:flight.captain||'',members:activePlayers().map(p=>({id:p.owner||(p.you?myId:p.id),name:p.name})),meId:myId});
+ if(ctx.tourId){const members=[];if(tstate&&tstate.players)Object.entries(tstate.players).forEach(([id,p])=>members.push({id,name:(p&&p.name)||''}));if(!members.some(m=>m.id===myId))members.push(me);spec.push({id:ctx.tourId,name:(tour.practice?'Practice ':'Tournament ')+String(tour.title||(tstate&&tstate.name)||tour.code).slice(0,32),kind:'tour',admin:tour.host?myId:'',members,meId:myId})}
+ const sig=JSON.stringify(spec.map(s=>({id:s.id,name:s.name,admin:s.admin,m:(s.members||[]).map(m=>m.id+':'+m.name)})));
+ if(sig!==shellSig){shellSig=sig;spec.forEach(s=>XLChat.ensureShell(db,s));XLChat.save(db)}
+ connectListed(db);return db}
+function paintChatBadge(db){const b=$('#chatBadge');if(!b||!window.XLChat)return;db=db||XLChat.load();const n=XLChat.unread(db,myId,chatCtx());b.hidden=n<1;b.textContent=n>9?'9+':String(n)}
+function chatTick(){if(!window.XLChat)return;try{const db=syncShells();paintChatBadge(db);if($('#s-chat')&&$('#s-chat').classList.contains('on'))paintChats(db)}catch(e){}}
+function paintChats(db){if(!window.XLChat||!$('#chatList'))return;db=db||syncShells();const g=db.open&&db.groups[db.open];const open=g&&!g.left?db.open:'';
+ if(db.open&&!open){db.open='';XLChat.save(db)}
+ $('#chatList').hidden=!!open;$('#chatRoom').hidden=!open;
+ if(!open)paintChatList(db);else paintChatRoom(db,db.groups[open]);paintChatBadge(db)}
+function paintChatList(db){const rows=XLChat.list(db,chatCtx());const sig=rows.map(g=>g.id+':'+(g.msgs&&g.msgs.length?g.msgs[g.msgs.length-1].mid:'')+':'+XLChat.unreadFor(g,myId)+':'+XLChat.displayName(g,myId)).join('|')+(taglish()?'1':'0');
+ if(sig===chatSig)return;chatSig=sig;const box=$('#chatRooms');if(!box)return;
+ if(!rows.length){box.innerHTML='<small>'+hx(tr('No chats yet. Tap a player\'s name, or start a group.','Wala pang chat. I-tap ang pangalan, o gumawa ng group.'))+'</small>';return}
+ box.innerHTML=rows.map(g=>{const last=g.msgs&&g.msgs.length?g.msgs[g.msgs.length-1]:null;const n=XLChat.unreadFor(g,myId);
+  const kind=g.kind==='flight'?tr('Flight','Flight'):g.kind==='tour'?tr('Tournament','Tournament'):g.kind==='direct'?tr('Direct','Direct'):tr('Group','Group');
+  return `<button type="button" class="b b2 chatrow" data-open="${hx(g.id)}"><b>${hx(XLChat.displayName(g,myId))}</b>${n?' <span class="badge">'+n+'</span>':''}<small>${hx(kind)}${last?' · '+hx(last.text.slice(0,80)):''}</small></button>`}).join('')}
+function paintChatRoom(db,g){const title=$('#chatTitle');if(title)title.textContent=XLChat.displayName(g,myId);
+ const kind=$('#chatKind');if(kind)kind.innerHTML='<small>'+hx(g.kind==='direct'?tr('Direct chat','Direct chat'):g.kind==='flight'?tr('Flight chat','Flight chat'):g.kind==='tour'?tr('Tournament chat','Tournament chat'):tr('Group','Group'))+' · '+hx(g.room)+'</small>';
+ const leave=$('#chatLeave');if(leave)leave.hidden=g.kind==='flight'||g.kind==='tour';
+ const logSig=(g.msgs||[]).map(m=>m.mid+(m.pending?'p':'')).join();
+ if(logSig!==roomLogSig){roomLogSig=logSig;const log=$('#chatLog');if(log){log.innerHTML=(g.msgs||[]).map(m=>{const tm=new Date(m.ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});const wait=m.pending?tr(' · sending',' · sine-send'):'';return `<div class="msg${m.system?' ann':''}${m.pending?' wait':''}"><b>${hx(m.fromName||(m.system?tr('Chat','Chat'):'?'))}</b> <small>${hx(tm+wait)}</small><br>${hx(m.text)}</div>`}).join('')||'<small>'+hx(tr('No messages yet.','Wala pang message.'))+'</small>';log.scrollTop=1e9}}
+ const memSig=(g.members||[]).map(m=>m.id+'/'+m.name).join()+':'+(g.muted||[]).join()+':'+g.admin+':'+g.kind;
+ if(memSig!==roomMemSig){roomMemSig=memSig;const box=$('#chatMembers');const mod=XLChat.canModerate(g,myId);
+  if(box)box.innerHTML=(g.members||[]).map(m=>{const muted=(g.muted||[]).includes(m.id),self=m.id===myId;
+   const controls=mod&&!self?`<button type="button" class="b b2" data-mute="${hx(m.id)}" style="flex:0 0 auto;min-height:36px;font-size:14px">${muted?hx(tr('Unmute','Unmute')):hx(tr('Mute','Mute'))}</button><button type="button" class="b b2" data-kick="${hx(m.id)}" style="flex:0 0 auto;min-height:36px;font-size:14px">${hx(tr('Remove','Remove'))}</button>`:'';
+   return `<div class="grow"><span>${self?hx((m.name||tr('You','Ikaw'))+' ('+tr('you','ikaw')+')'):chatName(m.id,m.name||'Player')}${muted?' <small>'+hx(tr('muted','muted'))+'</small>':''}</span>${controls}</div>`}).join('')}
+ if(chipLang!==opts.lang){chipLang=opts.lang;const chips=$('#chatChips');if(chips)chips.innerHTML=XLChat.CHIPS.map((c,i)=>`<button type="button" class="b b2" data-chip="${i}">${hx(taglish()?c.tl:c.en)}</button>`).join('')}
+ const add=$('#chatAdd');if(add&&!add.hidden)paintChatPeople(g)}
+function paintChatPeople(g){const people=knownPeople().filter(p=>!(g.members||[]).some(m=>m.id===p.id));const sig=people.map(p=>p.id+p.name).join('|');if(sig===peopleSig)return;peopleSig=sig;
+ const box=$('#chatPeople');if(!box)return;box.innerHTML=people.length?people.map(p=>`<label class="check"><input type="checkbox" data-add="${hx(p.id)}" data-addname="${hx(p.name)}" style="width:auto"> ${hx(p.name)}</label>`).join(''):'<small>'+hx(tr('No one else to add yet.','Wala pang idadagdag.'))+'</small>'}
+function showChat(id){$$('nav button,section').forEach(x=>x.classList.remove('on'));const b=$$('nav button').find(x=>x.dataset.s==='chat');if(b)b.classList.add('on');const sec=$('#s-chat');if(sec)sec.classList.add('on');
+ if(id){const db=XLChat.load();db.open=id;XLChat.markRead(db,id);XLChat.save(db)}chatSig='';roomLogSig='';roomMemSig='';paintChats()}
+function openChatWith(id,name){if(!window.XLChat)return;id=String(id||'').trim();name=String(name||'Player').slice(0,24);if(!id||id===myId)return;
+ const db=XLChat.load();const res=XLChat.openDirect(db,{id:myId,name:myChatName()},{id,name});if(!res||!res.group)return;XLChat.markRead(db,res.group.id);XLChat.save(db);connectTopic(res.group.room);
+ if(res.created)void publishChat(res.group,XLChat.metaOf(res.group,{id:myId,name:myChatName()}));showChat(res.group.id)}
+function openShell(kind){const db=syncShells();const ctx=chatCtx();const id=kind==='flight'?ctx.flightId:ctx.tourId;if(!id||!db.groups[id])return say(tr('That chat is not open yet.','Wala pang chat na iyon.'));connectTopic(db.groups[id].room);showChat(id)}
+function joinChatCode(raw,fromLink){const db=XLChat.load();const g=XLChat.joinGroup(db,{id:myId,name:myChatName()},raw);if(!g)return say(tr('Enter the invite code.','Ilagay ang invite code.'));XLChat.save(db);connectTopic(g.room);
+ const ev={t:'cjoin',room:g.room,fromId:myId,fromName:myChatName(),ts:Date.now(),mid:XLChat.mid()};void publishChat(g,ev);showChat(g.id);if(fromLink)say(tr('Chat code '+(String(g.id).split('').join(' '))+'.','Chat code '+(String(g.id).split('').join(' '))+'.'))}
+function createChatGroup(){const name=($('#chatName')&&$('#chatName').value||'').trim();if(!name)return say(tr('Name the group.','Lagyan ng pangalan ang group.'));
+ const db=XLChat.load();const g=XLChat.createGroup(db,{id:myId,name:myChatName()},name);XLChat.save(db);connectTopic(g.room);void publishChat(g,XLChat.metaOf(g,{id:myId,name:myChatName()}));
+ if($('#chatName'))$('#chatName').value='';const box=$('#chatNewBox');if(box)box.hidden=true;showChat(g.id);say(tr('Group '+g.id+'. You are the admin.','Group '+g.id+'. Admin ka.'))}
+async function deliverChat(ev,rooms){let ok=true;for(const room of rooms||[]){try{const r=await fetch(NTFY+XLChat.topicOf(room),{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(ev)});if(!r.ok)ok=false}catch(e){ok=false}}return ok}
+async function publishChat(g,ev,rooms){if(!ev||!g)return {ok:false};ev.room=ev.room||g.room;const dest=rooms||XLChat.fanout(g,myId);
+ if(typeof navigator!=='undefined'&&navigator.onLine===false){const db=XLChat.load();XLChat.enqueue(db,ev,dest);const row=(db.groups[g.id]&&db.groups[g.id].msgs||[]).find(m=>m.mid===ev.mid);if(row)row.pending=true;XLChat.save(db);return {queued:true}}
+ const ok=await deliverChat(ev,dest);const db=XLChat.load();if(!ok){XLChat.enqueue(db,ev,dest);const row=(db.groups[g.id]&&db.groups[g.id].msgs||[]).find(m=>m.mid===ev.mid);if(row)row.pending=true}else XLChat.ack(db,ev.mid);XLChat.save(db);return ok?{ok:true}:{queued:true}}
+async function sendChatText(groupId,text){text=String(text||'').trim().slice(0,280);if(!text)return;const db=XLChat.load();const g=db.groups[groupId];if(!g||g.left)return;
+ if((g.removed||[]).includes(myId))return say(tr('You were removed from this chat.','Tinanggal ka sa chat na ito.'));
+ const ev=XLChat.messageEvent(g,{id:myId,name:myChatName()},text);const offline=typeof navigator!=='undefined'&&navigator.onLine===false;
+ XLChat.append(db,g.id,{...ev,pending:offline});if(offline)XLChat.enqueue(db,ev,XLChat.fanout(g,myId));XLChat.markRead(db,g.id);XLChat.save(db);roomLogSig='';chatSig='';paintChats();
+ if(!offline){const ok=await deliverChat(ev,XLChat.fanout(g,myId));const db2=XLChat.load();if(!ok){XLChat.enqueue(db2,ev,XLChat.fanout(db2.groups[g.id]||g,myId));const row=(db2.groups[g.id].msgs||[]).find(m=>m.mid===ev.mid);if(row)row.pending=true}else XLChat.ack(db2,ev.mid);XLChat.save(db2);roomLogSig='';paintChats()}}
+async function flushChat(){if(chatFlushing||(typeof navigator!=='undefined'&&navigator.onLine===false)||!window.XLChat)return;chatFlushing=true;try{let guard=0;while(guard++<40){const db=XLChat.load();const item=db.queue&&db.queue[0];if(!item)break;const ok=await deliverChat(item.ev,item.rooms||[item.ev.room]);if(!ok)break;const db2=XLChat.load();XLChat.shiftQueue(db2,item.mid);XLChat.ack(db2,item.mid);XLChat.save(db2)}}finally{chatFlushing=false}roomLogSig='';chatSig='';paintChatBadge();if($('#s-chat')&&$('#s-chat').classList.contains('on'))paintChats()}
+function ingestChat(ev,live){if(!ev||typeof ev!=='object'||!window.XLChat)return;const db=XLChat.load();const res=XLChat.apply(db,ev,myId);if(!res||res.dup||res.ignored)return;XLChat.save(db);
+ if(res.created&&res.group)connectTopic(res.group.room);
+ if(res.needMeta&&live&&res.group)void publishChat(res.group,XLChat.metaOf(res.group,{id:myId,name:myChatName()}));
+ if(res.removedMe)say(tr('You were removed from the chat.','Tinanggal ka sa chat.'));
+ const msg=res.addedMsg&&res.group&&(res.group.msgs||[])[(res.group.msgs||[]).length-1];
+ if(msg&&live&&opts.autoread&&msg.fromId!==myId&&Date.now()-(+msg.ts||0)<60000&&!((res.group.muted||[]).includes(msg.fromId)))say(msg.system?msg.text:tr((msg.fromName||'Someone')+' says: '+msg.text,(msg.fromName||'May isang tao')+': '+msg.text));
+ chatSig='';roomLogSig='';roomMemSig='';paintChatBadge(db);if($('#s-chat')&&$('#s-chat').classList.contains('on'))paintChats()}
+function selectedAdds(){return $$('#chatPeople [data-add]:checked').map(el=>({id:el.getAttribute('data-add'),name:el.getAttribute('data-addname')||'Player'}))}
+async function growChat(){const db=XLChat.load();const g=db.groups[db.open];if(!g)return;const people=selectedAdds();if(!people.length)return say(tr('Choose someone to add.','Pumili ng idadagdag.'));
+ const res=XLChat.addPeople(db,g.id,people,{id:myId,name:myChatName()});XLChat.save(db);peopleSig='';roomLogSig='';roomMemSig='';chatSig='';paintChats();if(res&&res.ev)await publishChat(res.group,res.ev)}
+async function spawnChat(){const db=XLChat.load();const g=db.groups[db.open];if(!g)return;const people=selectedAdds();if(!people.length)return say(tr('Choose someone to add.','Pumili ng idadagdag.'));
+ const names=(g.members||[]).map(m=>m.name).concat(people.map(p=>p.name)).filter(Boolean);const res=XLChat.spawnGroup(db,{id:myId,name:myChatName()},g.id,people,names.slice(0,3).join(', ')||'Group');if(!res)return;
+ XLChat.save(db);connectTopic(res.group.room);await publishChat(res.group,res.ev);await publishChat(res.origin,res.note);peopleSig='';showChat(res.group.id)}
+async function modChat(kind,targetId){const db=XLChat.load();const g=db.groups[db.open];if(!g||!targetId)return;const ev=kind==='mute'?XLChat.mute(db,g.id,targetId,myId,!(g.muted||[]).includes(targetId)):XLChat.removeMember(db,g.id,targetId,myId);
+ if(!ev)return say(tr('Only the admin can do that.','Admin lang ang pwedeng gumawa niyan.'));XLChat.save(db);roomLogSig='';roomMemSig='';paintChats();await publishChat(g,ev)}
+async function leaveOpenChat(){const db=XLChat.load();const id=db.open,g=db.groups[id];if(!g)return;if(g.kind==='flight'||g.kind==='tour'){db.open='';XLChat.save(db);chatSig='';paintChats();return}
+ const ev=XLChat.leave(db,id,myId);XLChat.save(db);chatSig='';paintChats();if(ev)await publishChat(g,ev)}
+function shareOpenChat(){const db=XLChat.load();const g=db.groups[db.open];if(!g)return;const u=location.origin+location.pathname+'?chat='+encodeURIComponent(g.id);const title='Join my xLooper chat';
+ if(navigator.share)navigator.share({title,text:(g.name||'Chat')+' '+g.id,url:u}).catch(()=>{});
+ else if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(()=>say(tr('Link copied.','Na-copy ang link.'))).catch(()=>say(u));else say(u)}
+function bindChat(){if(!$('#chatNew'))return;
+ $('#chatNew').onclick=()=>{const box=$('#chatNewBox');if(box)box.hidden=!box.hidden};
+ $('#chatCreate').onclick=()=>createChatGroup();
+ $('#chatJoin').onclick=()=>joinChatCode($('#chatJoinCode')&&$('#chatJoinCode').value,false);
+ $('#chatBack').onclick=()=>{const db=XLChat.load();db.open='';XLChat.save(db);chatSig='';paintChats()};
+ $('#chatInvite').onclick=()=>shareOpenChat();
+ $('#chatAddBtn').onclick=()=>{const box=$('#chatAdd');if(!box)return;box.hidden=!box.hidden;const db=XLChat.load();const g=db.groups[db.open];if(g&&!box.hidden){peopleSig='';paintChatPeople(g)}};
+ $('#chatGrow').onclick=()=>growChat();
+ $('#chatSpawn').onclick=()=>spawnChat();
+ $('#chatLeave').onclick=()=>leaveOpenChat();
+ $('#chatSend').onclick=()=>{const t=$('#chatTxt');const v=t&&t.value;if(t)t.value='';const db=XLChat.load();if(db.open)sendChatText(db.open,v)};
+ $('#chatTxt').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#chatSend').click()}});
+ $('#chatMic').onclick=()=>listen(t=>{const db=XLChat.load();if(db.open)sendChatText(db.open,t)},tr('Say your message…','Sabihin ang message…'));
+ if($('#openFlightChat'))$('#openFlightChat').onclick=()=>openShell('flight');
+ if($('#openTourChat'))$('#openTourChat').onclick=()=>openShell('tour');
+ $('#s-chat').addEventListener('click',e=>{const open=e.target.closest&&e.target.closest('[data-open]');if(open){showChat(open.getAttribute('data-open'));return}
+  const chip=e.target.closest&&e.target.closest('[data-chip]');if(chip){const db=XLChat.load();if(db.open)sendChatText(db.open,XLChat.chip(+chip.getAttribute('data-chip'),taglish()));return}
+  const mute=e.target.closest&&e.target.closest('[data-mute]');if(mute){modChat('mute',mute.getAttribute('data-mute'));return}
+  const kick=e.target.closest&&e.target.closest('[data-kick]');if(kick)modChat('kick',kick.getAttribute('data-kick'))});
+ window.addEventListener('online',()=>flushChat())}
+bindChat();
 render();connect();if(flight)connectFlight();hydrateCourses();
+flushChat();
 maybeXircle();
 function showUpdate(){const el=$('#upd');if(!el)return;el.hidden=false;el.onclick=()=>location.reload()}
 if('serviceWorker'in navigator){let sawControl=!!navigator.serviceWorker.controller,readyForUpdate=sawControl;
