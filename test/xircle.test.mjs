@@ -122,18 +122,33 @@ test('join requires consent and does not send mail itself', async () => {
   assert.equal(XL.contactsAvailable({contacts: {select(){}}}), true);
 });
 
-test('firestore writes hashes under the contact id and keeps parent on rejoin', async () => {
-  const docs = new Map();
-  const calls = [];
-  const fetch = async (url, opt) => {
+function firestorePath(u){
+  const path = String(u).split('?')[0];
+  const i = path.lastIndexOf('/');
+  return path.slice(0, i + 1) + decodeURIComponent(path.slice(i + 1));
+}
+
+function firestoreFetch(docs, calls){
+  return async (url, opt) => {
     const u = String(url);
     calls.push({url: u, method: opt && opt.method || 'GET', body: opt && opt.body});
     if (u.includes('identitytoolkit.googleapis.com')) {
       return {ok: true, status: 200, text: async () => JSON.stringify({idToken: 'tok', refreshToken: 'ref', localId: 'uid', expiresIn: '3600'})};
     }
     const method = (opt && opt.method) || 'GET';
-    const path = u.split('?')[0];
-    const id = decodeURIComponent(path.split('/').pop());
+    const path = firestorePath(u);
+    if (u.includes(':runQuery')) {
+      const q = JSON.parse(opt.body).structuredQuery;
+      const field = q.where.fieldFilter.field.fieldPath;
+      const value = q.where.fieldFilter.value.stringValue;
+      const rows = [];
+      for (const [docPath, body] of docs) {
+        if (!docPath.includes('/' + q.from[0].collectionId + '/')) continue;
+        const decoded = XL.decodeDoc(body);
+        if (decoded[field] === value) rows.push({document: body});
+      }
+      return {ok: true, status: 200, text: async () => JSON.stringify(rows)};
+    }
     if (method === 'GET') {
       if (!docs.has(path)) return {ok: false, status: 404, text: async () => JSON.stringify({error: {message: 'missing', status: 'NOT_FOUND'}})};
       return {ok: true, status: 200, text: async () => JSON.stringify(docs.get(path))};
@@ -142,16 +157,22 @@ test('firestore writes hashes under the contact id and keeps parent on rejoin', 
     if (method === 'PATCH' && u.includes('currentDocument.exists=true') && !docs.has(path)) {
       return {ok: false, status: 404, text: async () => JSON.stringify({error: {message: 'missing'}})};
     }
-    if (method === 'POST') {
-      const docId = decodeURIComponent(new URL(u).searchParams.get('documentId'));
-      const docPath = path.replace(/\/$/, '') + '/' + docId;
-      docs.set(docPath, body);
+    if (method === 'POST' && u.includes('documentId=')) {
+      const docId = new URL(u).searchParams.get('documentId');
+      const docPath = u.split('?')[0].replace(/\/$/, '') + '/' + docId;
+      docs.set(firestorePath(docPath), body);
       return {ok: true, status: 200, text: async () => JSON.stringify(body)};
     }
     if (method === 'DELETE') {docs.delete(path); return {ok: true, status: 200, text: async () => '{}'};}
     docs.set(path, body);
     return {ok: true, status: 200, text: async () => JSON.stringify(body)};
   };
+}
+
+test('firestore writes hashes under the contact id and keeps parent on rejoin', async () => {
+  const docs = new Map();
+  const calls = [];
+  const fetch = firestoreFetch(docs, calls);
   const dir = XL.createDirectory({
     config: {firebase: {apiKey: 'AIza-public', projectId: 'xlooper-demo'}},
     storage: memStorage(),
@@ -191,6 +212,108 @@ test('firestore writes hashes under the contact id and keeps parent on rejoin', 
   assert.equal(moved.member.memberId, 'bo1');
   assert.equal(moved.member.chatId, 'bo2');
   assert.equal(moved.member.parentId, 'ada1');
+  const memberCall = calls.find(c => c.method === 'POST' && c.url.includes('/xircleMembers'));
+  assert.equal(new URL(memberCall.url).searchParams.get('documentId'), 'xlooper__ada1');
+  assert.equal(JSON.parse(memberCall.body).fields.appId.stringValue, 'xlooper');
+  assert.equal(JSON.parse(memberCall.body).fields.xircle, undefined);
+});
+
+test('sub-xircles share a person and keep separate trees', async () => {
+  const xlooperApp = '1:380596925925:web:49c554c85142de53656b0c';
+  const korApp = '1:380596925925:web:a2c784c5ba701c4e656b0c';
+  const docs = new Map();
+  const calls = [];
+  const fetch = firestoreFetch(docs, calls);
+  const xlooper = XL.createDirectory({
+    config: {firebase: {apiKey: 'AIza-public', projectId: 'xircle-a43cf', appId: xlooperApp}},
+    storage: memStorage(),
+    fetch,
+    now: () => 7000
+  });
+  const kor = XL.createDirectory({
+    config: {firebase: {apiKey: 'AIza-public', projectId: 'xircle-a43cf', appId: korApp}},
+    storage: memStorage(),
+    fetch,
+    chatId: () => 'adaK',
+    memberId: () => 'ada1',
+    now: () => 8000
+  });
+  const joined = await xlooper.join({name: 'Ada', email: 'Ada@X.com', chatId: 'ada1', consent: true});
+  assert.equal(joined.member.memberId, 'ada1');
+  assert.equal((await kor.lookup('ada@x.com')).person, null);
+  const child = await xlooper.join({name: 'Bo', email: 'bo@y.co', chatId: 'bo1', consent: true, parentId: 'ada1'});
+  assert.equal(child.member.parentId, 'ada1');
+  const again = await kor.join({name: 'Ada', email: 'ada@x.com', chatId: 'adaK', consent: true, parentId: 'parentK'});
+  assert.equal(again.member.memberId, 'ada1');
+  assert.equal(again.member.chatId, 'adaK');
+  assert.equal(again.member.parentId, 'parentK');
+  assert.equal(again.member.appId, korApp);
+  const back = await xlooper.lookup('ada@x.com');
+  assert.equal(back.person.chatId, 'ada1');
+  assert.equal(back.person.parentId, '');
+  assert.equal(xlooper.children('ada1').length, 1);
+  assert.equal(kor.children('ada1').length, 0);
+  await kor.sync(true);
+  assert.equal(kor.listMembers().some(p => p.memberId === 'bo1'), false);
+  assert.equal(kor.listMembers().some(p => p.memberId === 'ada1'), true);
+  const raw = calls.map(c => c.body || '').join('\n');
+  assert.equal(raw.includes('ada@x.com'), false);
+  assert.equal(raw.includes('Ada@X.com'), false);
+  function doc(suffix){
+    for (const [path, body] of docs) if (path.endsWith('/' + suffix)) return XL.decodeDoc(body);
+    return null;
+  }
+  assert.equal(doc(xlooperApp + '__ada1').parentId, '');
+  assert.equal(doc(xlooperApp + '__ada1').chatId, 'ada1');
+  assert.equal(doc(korApp + '__ada1').parentId, 'parentK');
+  assert.equal(doc(korApp + '__ada1').chatId, 'adaK');
+  assert.equal(doc(korApp + '__ada1').appId, korApp);
+  assert.equal(doc('ada1').chatId, 'ada1');
+  await xlooper.withdraw('ada1');
+  assert.equal((await xlooper.lookup('ada@x.com')).person, null);
+  assert.equal((await kor.lookup('ada@x.com')).person.chatId, 'adaK');
+  assert.equal(calls.some(c => c.method === 'DELETE'), false);
+  await xlooper.recordInvite({id: 'inv1', toMemberId: 'ada1', toChatId: 'adaK', fromMemberId: 'zz', fromName: 'Zed', groupId: 'g1', groupName: 'Saturday', room: 'xircle/xlooper/g1'});
+  const korInbox = XL.createDirectory({
+    config: {firebase: {apiKey: 'AIza-public', projectId: 'xircle-a43cf', appId: korApp}},
+    storage: memStorage(),
+    fetch,
+    chatId: () => 'adaK',
+    now: () => 9000
+  });
+  await korInbox.sync(true);
+  assert.equal(korInbox.invitesFor('adaK', 'ada1').length, 0);
+  const xInbox = XL.createDirectory({
+    config: {firebase: {apiKey: 'AIza-public', projectId: 'xircle-a43cf', appId: xlooperApp}},
+    storage: memStorage(),
+    fetch,
+    chatId: () => 'adaK',
+    now: () => 9000
+  });
+  await xInbox.sync(true);
+  assert.equal(xInbox.invitesFor('adaK', 'ada1').length, 1);
+  assert.equal(xInbox.invitesFor('adaK', 'ada1')[0].appId, xlooperApp);
+});
+
+test('ntfy notices from another app stay out of this tree', async () => {
+  const board = [];
+  const fetch = async (url, opt) => {
+    if (opt && opt.method === 'POST') {
+      board.push(JSON.parse(opt.body));
+      return {ok: true, status: 200, text: async () => '{}'};
+    }
+    const text = board.map((ev, i) => JSON.stringify({id: 'n' + i, event: 'message', message: JSON.stringify(ev)})).join('\n');
+    return {ok: true, status: 200, text: async () => text};
+  };
+  const xlooperApp = '1:111:web:aaa';
+  const korApp = '1:111:web:bbb';
+  const xlooper = XL.createDirectory({config: {signupTopic: 'shared-topic', firebase: {appId: xlooperApp}}, storage: memStorage(), fetch, now: () => 1000});
+  await xlooper.join({name: 'Ada', email: 'ada@x.com', chatId: 'ada1', consent: true});
+  assert.equal(board[0].appId, xlooperApp);
+  const kor = XL.createDirectory({config: {signupTopic: 'shared-topic', firebase: {appId: korApp}}, storage: memStorage(), fetch, now: () => 2000});
+  await kor.sync(true);
+  assert.equal(kor.listMembers().length, 0);
+  assert.equal((await kor.lookup('ada@x.com')).person, null);
 });
 
 test('missing firebase auth falls back to ntfy', async () => {
@@ -230,10 +353,16 @@ test('pages shell asks before contacts and documents the firebase keys', () => {
   assert.match(html, /May xLooper read your contacts/);
   assert.match(html, /SHA-256/);
   assert.match(html, /id="xi-ok"/);
-  assert.match(config, /firebase\.apiKey|apiKey:/);
-  assert.match(readme, /firebase\.apiKey/);
+  assert.match(config, /apiKey:\s*'AIzaSyCjmDiNxEZs4Ju-NHLLHfWrzjogkJclYIk'/);
+  assert.match(config, /projectId:\s*'xircle-a43cf'/);
+  assert.match(config, /appId:\s*'1:380596925925:web:49c554c85142de53656b0c'/);
+  assert.match(readme, /firebase\.apiKey|apiKey/);
   assert.match(readme, /Anonymous/);
+  assert.match(readme, /1:380596925925:web:a2c784c5ba701c4e656b0c/);
   assert.match(rules, /xirclePeople/);
+  assert.match(rules, /appOk/);
+  assert.match(rules, /request\.resource\.data\.parentId == resource\.data\.parentId/);
+  assert.equal(rules.includes("== 'xlooper'"), false);
   assert.equal(config.includes('private_key'), false);
   assert.equal(html.includes('BEGIN PRIVATE KEY'), false);
 });

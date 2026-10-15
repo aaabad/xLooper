@@ -1,4 +1,4 @@
-const V='xlooper-v18',CORE=['./','index.html','app.js','chat.js','games.js','course-osm.js','config.js','xircle-db.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','https://unpkg.com/leaflet@1.9.4/dist/leaflet.css','https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
+const V='xlooper-v19',CORE=['./','index.html','app.js','chat.js','games.js','course-osm.js','config.js','xircle-db.js','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png','https://unpkg.com/leaflet@1.9.4/dist/leaflet.css','https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
 let tileNet=false;
 self.addEventListener('install',e=>{e.waitUntil((async()=>{const c=await caches.open(V);await Promise.all(CORE.map(u=>c.add(u).catch(()=>{})));await self.skipWaiting()})())});
 self.addEventListener('activate',e=>{e.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(x=>x!==V&&x!=='xl-tiles').map(x=>caches.delete(x)));await self.clients.claim();const cs=await self.clients.matchAll({type:'window'});for(const c of cs)c.postMessage({type:'xlooper-update'})})())});

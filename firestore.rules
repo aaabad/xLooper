@@ -1,8 +1,14 @@
 rules_version = '2';
 // Paste into Firebase console → Firestore → Rules → Publish.
-// xLooper only sends SHA-256 contact hashes. These rules reject raw email and phone fields.
-// Reads of people, contacts, and membership are public so a static page can look someone up.
-// Writes require Anonymous Authentication (Firebase console → Authentication → Anonymous → Enable).
+// Project xircle-a43cf is the global xircle database for every app
+// (xLooper, KOR-World, and later apps). Production mode denies all
+// access until these rules are published.
+//
+// xirclePeople and xircleContacts are shared. One person, one member id,
+// found by a SHA-256 hash. Raw email and phone fields are rejected.
+// xircleMembers and xircleInvites are one sub-xircle per Firebase web appId.
+// The family tree (parentId) stays inside that app. parentId cannot change.
+// Writes require Anonymous Authentication.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
@@ -11,8 +17,25 @@ service cloud.firestore {
     function hashOk(v) {
       return v is string && v.matches('^[a-f0-9]{64}$');
     }
+    function appOk(v) {
+      return v is string && v.matches('^[A-Za-z0-9:_-]{1,80}$');
+    }
     function noRaw(data) {
       return !data.keys().hasAny(['email', 'phone', 'tel', 'e164']);
+    }
+    function memberShape(id) {
+      return noRaw(request.resource.data)
+        && request.resource.data.keys().hasOnly(['appId', 'memberId', 'parentId', 'name', 'chatId', 'joinedAt', 'withdrawn'])
+        && appOk(request.resource.data.appId)
+        && request.resource.data.memberId.matches('^[A-Za-z0-9_-]{1,40}$')
+        && id == request.resource.data.appId + '__' + request.resource.data.memberId
+        && (request.resource.data.parentId == '' || request.resource.data.parentId.matches('^[A-Za-z0-9_-]{1,40}$'))
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.chatId.matches('^[A-Za-z0-9_-]{1,40}$')
+        && request.resource.data.withdrawn is bool
+        && request.resource.data.joinedAt is int;
     }
 
     match /xirclePeople/{id} {
@@ -25,9 +48,7 @@ service cloud.firestore {
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 80
-        && request.resource.data.chatId is string
-        && request.resource.data.chatId.size() > 0
-        && request.resource.data.chatId.size() <= 40
+        && request.resource.data.chatId.matches('^[A-Za-z0-9_-]{1,40}$')
         && request.resource.data.withdrawn is bool
         && request.resource.data.consentAt is int;
       allow delete: if false;
@@ -40,23 +61,20 @@ service cloud.firestore {
         && noRaw(request.resource.data)
         && request.resource.data.keys().hasOnly(['kind', 'memberId', 'withdrawn'])
         && request.resource.data.kind in ['email', 'phone']
-        && request.resource.data.memberId is string
+        && request.resource.data.memberId.matches('^[A-Za-z0-9_-]{1,40}$')
         && request.resource.data.withdrawn is bool;
       allow delete: if signedIn();
     }
 
     match /xircleMembers/{id} {
       allow read: if true;
-      allow create, update: if signedIn()
-        && noRaw(request.resource.data)
-        && request.resource.data.keys().hasOnly(['xircle', 'memberId', 'parentId', 'name', 'chatId', 'joinedAt', 'withdrawn'])
-        && request.resource.data.xircle == 'xlooper'
-        && request.resource.data.memberId is string
-        && request.resource.data.parentId is string
-        && request.resource.data.name is string
-        && request.resource.data.chatId is string
-        && request.resource.data.withdrawn is bool
-        && request.resource.data.joinedAt is int;
+      allow create: if signedIn() && memberShape(id);
+      allow update: if signedIn()
+        && memberShape(id)
+        && request.resource.data.parentId == resource.data.parentId
+        && request.resource.data.appId == resource.data.appId
+        && request.resource.data.memberId == resource.data.memberId
+        && request.resource.data.joinedAt == resource.data.joinedAt;
       allow delete: if false;
     }
 
@@ -64,8 +82,9 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && noRaw(request.resource.data)
-        && request.resource.data.keys().hasOnly(['id', 'xircle', 'toMemberId', 'toChatId', 'fromMemberId', 'fromName', 'groupId', 'groupName', 'room', 'status', 'ts'])
-        && request.resource.data.xircle == 'xlooper'
+        && request.resource.data.keys().hasOnly(['id', 'appId', 'toMemberId', 'toChatId', 'fromMemberId', 'fromName', 'groupId', 'groupName', 'room', 'status', 'ts'])
+        && request.resource.data.id == id
+        && appOk(request.resource.data.appId)
         && request.resource.data.status == 'pending'
         && request.resource.data.toChatId is string
         && request.resource.data.groupId is string

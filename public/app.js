@@ -1,4 +1,4 @@
-// xLooper v0.18 – voice golf caddy PWA
+// xLooper v0.19 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -1232,7 +1232,7 @@ function maybeXircle(){const el=$('#xircle');if(!el||el.style.display==='block')
 function xircleStatus(){const s=$('#xi-status'),b=$('#xi-set');if(!s||!b)return;
  if(xstate.signup){s.textContent=xstate.signup.sent?tr('Joined as '+xstate.signup.name+'.','Sumali ka bilang '+xstate.signup.name+'.'):tr('Saved on this device as '+xstate.signup.name+'. The directory notice has not been sent yet.','Naka-save sa phone bilang '+xstate.signup.name+'. Hindi pa naipadala ang directory.');setLabeled(b,xstate.signup.sent?'Withdraw':'Retry signup',xstate.signup.sent?'Umalis':'Ulitin ang signup');b.classList.toggle('red',!!xstate.signup.sent)}
  else{s.textContent=xstate.withdrawn?tr('You withdrew. You can join again any time.','Umalis ka na. Pwedeng sumali ulit.'):tr('Not joined.','Hindi pa sumasali.');setLabeled(b,'Join xircle','Sumali sa xircle');b.classList.remove('red')}
- const dirEl=$('#xi-dir'),dir=directory();if(dirEl&&dir){const st=dir.status();dirEl.textContent=tr(st.detail,st.mode==='firestore'?'Directory: Firebase Firestore para sa xircle.us.':(st.error?'Directory: phone at ntfy (mga 12 oras). Hindi pa handa ang Firebase: '+st.error:'Directory: phone at ntfy (mga 12 oras). Ilagay ang firebase.apiKey at firebase.projectId sa config.js, i-enable ang Anonymous sign-in, at i-publish ang firestore.rules.'))}}
+ const dirEl=$('#xi-dir'),dir=directory();if(dirEl&&dir){const st=dir.status();const tl=st.mode==='firestore'&&st.confirmed?'Directory: Firebase Firestore para sa xircle.us.':(st.mode==='firestore'?'Directory: tinitingnan ang Firebase Firestore…':(st.error?'Directory: phone at ntfy (mga 12 oras). Hindi pa handa ang Firebase: '+st.error:'Directory: phone at ntfy (mga 12 oras). Ilagay ang firebase.apiKey at firebase.projectId sa config.js, i-enable ang Anonymous sign-in, at i-publish ang firestore.rules.'));dirEl.textContent=tr(st.detail,tl)}}
 async function refreshTree(){const box=$('#xi-tree');if(!box||!window.XLXircle)return;const id=xstate.signup&&xstate.signup.memberId;if(!id){box.textContent='';return}
  const dir=directory();try{await dir.sync(false)}catch(e){}
  const me=dir.person(id),kids=dir.children(id),parent=me&&me.parentId?dir.person(me.parentId):null,bits=[];
@@ -1262,7 +1262,7 @@ async function submitXircle(){
  xircleStatus();void refreshTree()}
 async function withdrawXircle(){
  if(!xstate.signup)return;
- if(!confirm(tr('Withdraw from xircle? This phone will forget the signup. The shared directory will stop matching your email and phone. Who invited you can stay in the tree.','Umalis sa xircle? Makakalimutan ng phone ang signup. Hindi na imi-match ng directory ang email at phone. Pwedeng manatili sa tree kung sino ang nag-invite.')))return;
+ if(!confirm(tr('Withdraw from the xLooper xircle? This phone will forget the signup. xLooper will stop matching you for invites. Who invited you can stay in the tree.','Umalis sa xLooper xircle? Makakalimutan ng phone ang signup. Hindi ka na imi-match ng xLooper para sa invites. Pwedeng manatili sa tree kung sino ang nag-invite.')))return;
  const id=xstate.signup.memberId;xstate.signup=null;xstate.withdrawn=true;xstate.asks=2;P('xircle',xstate);xircleStatus();const tree=$('#xi-tree');if(tree)tree.textContent='';
  const dir=directory();if(!dir||!id){say(tr('Withdrawn from xircle.','Umalis ka na sa xircle.'));return}
  try{const res=await dir.withdraw(id);say(res&&res.remote?tr('Withdrawn from xircle.','Umalis ka na sa xircle.'):tr('Removed on this device. The withdrawal notice did not send.','Tinanggal sa phone na ito. Hindi na-send ang withdrawal.'))}
