@@ -33,9 +33,11 @@ td input{width:52px;padding:6px;text-align:center}.cur{background:#1d5c33}
 .msgs{max-height:40vh;overflow:auto}.msg{padding:6px 0;border-bottom:1px solid #1d5c33}.msg.ann{color:#ffd23f}
 small{color:#9bb}
 #near{border:2px solid #ffd23f}#sharebox input{font-size:14px}
-#xircle{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:2000;overflow:auto;padding:16px 12px calc(16px + env(safe-area-inset-bottom))}
-#xircle .card{max-width:440px;margin:12px auto}#xircle label{display:flex;gap:10px;align-items:flex-start;font-size:16px;line-height:1.35}
-#xircle label input{width:auto;flex:0 0 auto;margin-top:3px}#xi-err{color:#ffd23f;min-height:1.2em}
+#xircle,#invite{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:2000;overflow:auto;padding:16px 12px calc(16px + env(safe-area-inset-bottom))}
+#xircle .card,#invite .card{max-width:440px;margin:12px auto}#xircle label,#invite label{display:flex;gap:10px;align-items:flex-start;font-size:16px;line-height:1.35}
+#xircle label input,#invite label input{width:auto;flex:0 0 auto;margin-top:3px}#xi-err,#inv-err{color:#ffd23f;min-height:1.2em}
+#invite a.b{display:flex;align-items:center;justify-content:center;text-align:center;text-decoration:none;margin-top:8px}
+#invite input[readonly]{font-size:14px;margin-top:8px}
 .seg{display:flex;border-radius:14px;overflow:hidden;border:2px solid #ffd23f;margin:8px 0}
 .seg button{flex:1;background:#0b3d1e;color:#fff;border:0;font-weight:800;font-size:18px;min-height:52px;padding:10px}
 .seg.mini{margin:4px 0}.seg.mini button{min-height:36px;font-size:15px;padding:4px}
@@ -226,8 +228,8 @@ button.linkish{background:none;border:0;color:#9be564;font:inherit;font-weight:8
  <label class="check"><input type="checkbox" id="sim" style="width:auto"> <span data-en="Simulation / test mode" data-tl="Simulation / test mode">Simulation / test mode</span></label>
  <small data-en="Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them." data-tl="Papalitan ang GPS para makapag-practice sa bahay. Practice ang round maliban kung i-save mo.">Replaces GPS so you can play from home. Rounds stay practice unless you choose to keep them.</small>
  <label id="countSimLbl" class="check" style="display:none"><input type="checkbox" id="countSim" style="width:auto"> <span data-en="Count simulated scores on a real tournament" data-tl="Bilangin ang simulation sa totoong tournament">Count simulated scores on a real tournament</span></label></div>
- <div class="card"><b>xircle</b><div id="xi-status"><small>Not joined.</small></div><div class="row"><button class="b" id="xi-set" style="font-size:18px">Join xircle</button></div></div>
- <small>xLooper v0.17 · for Boss (GSSC)</small></section>
+ <div class="card"><b>xircle</b><div id="xi-status"><small data-en="Not joined." data-tl="Hindi pa sumasali.">Not joined.</small></div><small id="xi-dir"></small><div id="xi-tree"></div><div class="row"><button class="b" id="xi-set" style="font-size:18px" data-en="Join xircle" data-tl="Sumali sa xircle">Join xircle</button></div></div>
+ <small>xLooper v0.18 · for Boss (GSSC)</small></section>
 <section id="s-tour"><div id="tjoin" class="card">
  <h3 style="margin-top:0">Tournament</h3><input id="tname" placeholder="Your name (e.g. Boss)">
  <label class="check"><input type="checkbox" id="tpractice" style="width:auto"> <span data-en="Practice code (dry run)" data-tl="Practice code (dry run)">Practice code (dry run)</span></label>
@@ -296,6 +298,7 @@ button.linkish{background:none;border:0;color:#9be564;font:inherit;font-weight:8
    <div class="row"><button type="button" class="b" id="chatCreate" data-en="Create" data-tl="Gumawa">Create</button></div>
   </div>
   <div class="row"><input id="chatJoinCode" maxlength="40" placeholder="Invite code" data-en="Invite code" data-tl="Invite code" aria-label="Invite code"><button type="button" class="b b2" id="chatJoin" style="flex:0 0 110px" data-en="Join" data-tl="Sumali">Join</button></div>
+  <div id="chatInvites"></div>
   <div id="chatRooms"></div>
   <small data-en="Chats stay on this phone. ntfy.sh keeps a copy for about 12 hours. A lasting xircle.us chat service comes later." data-tl="Naka-save ang chats sa phone. Mga 12 oras ang kopya sa ntfy.sh. May xircle.us chat service mamaya.">Chats stay on this phone. ntfy.sh keeps a copy for about 12 hours. A lasting xircle.us chat service comes later.</small>
  </div>
@@ -318,21 +321,47 @@ button.linkish{background:none;border:0;color:#9be564;font:inherit;font-weight:8
 </section>
 </div>
 <nav><button data-s="caddy" class="on" data-en="Caddy" data-tl="Caddy">Caddy</button><button data-s="map" data-en="Map" data-tl="Map">Map</button><button data-s="card" data-en="Card" data-tl="Card">Card</button><button data-s="tour" data-en="Tourney" data-tl="Tourney">Tourney</button><button data-s="clubs" data-en="Clubs" data-tl="Clubs">Clubs</button><button data-s="chat"><span data-en="Chat" data-tl="Chat">Chat</span><span id="chatBadge" hidden></span></button></nav>
+<div id="invite" style="display:none"><div class="card">
+ <h3 style="margin-top:0" data-en="Invite to this chat" data-tl="Invite sa chat na ito">Invite to this chat</h3>
+ <div id="inv-ask">
+  <p style="margin:0 0 8px" data-en="May xLooper read your contacts? The browser will ask you to pick people. xLooper only sees the ones you pick. It does not upload your address book. A name, email, or phone is used only to see if they are already in the xLooper xircle." data-tl="Pwedeng basahin ng xLooper ang contacts mo? Hihingi ang browser ng mga taong pipiliin mo. Ang napili mo lang ang makikita. Hindi ina-upload ang address book. Pangalan, email, o phone lang ang gagamitin para tingnan kung nasa xLooper xircle na sila.">May xLooper read your contacts? The browser will ask you to pick people. xLooper only sees the ones you pick. It does not upload your address book. A name, email, or phone is used only to see if they are already in the xLooper xircle.</p>
+  <p id="inv-unsupported" class="legal" hidden data-en="This browser cannot open contacts. Desktop Chrome works this way. Type an email or phone, or pick someone already in xLooper." data-tl="Hindi mabuksan ang contacts sa browser na ito. Ganyan ang desktop Chrome. Mag-type ng email o phone, o pumili ng tao na nasa xLooper.">This browser cannot open contacts. Desktop Chrome works this way. Type an email or phone, or pick someone already in xLooper.</p>
+  <div class="row"><button type="button" class="b" id="inv-yes" data-en="Yes, use contacts" data-tl="Oo, gamitin ang contacts">Yes, use contacts</button></div>
+  <div class="row"><button type="button" class="b b2" id="inv-type" data-en="I'll type an email or phone" data-tl="Magta-type ako ng email o phone">I'll type an email or phone</button></div>
+  <div class="row"><button type="button" class="b b2" id="inv-people" data-en="People already in xLooper" data-tl="Mga tao na sa xLooper">People already in xLooper</button></div>
+  <div class="row"><button type="button" class="b b2" id="inv-share" data-en="Share join link" data-tl="I-share ang join link">Share join link</button></div>
+  <div class="row"><button type="button" class="b b2" id="inv-cancel" data-en="Not now" data-tl="Huwag muna">Not now</button></div>
+ </div>
+ <div id="inv-form" hidden>
+  <p style="margin:0 0 8px" data-en="Email or phone. xLooper checks the xLooper xircle, then you choose what to open. Nothing is sent until you tap send." data-tl="Email o phone. Titingnan ng xLooper ang xircle, tapos ikaw ang pipili kung ano ang bubuksan. Walang ise-send hanggang i-tap mo ang send.">Email or phone. xLooper checks the xLooper xircle, then you choose what to open. Nothing is sent until you tap send.</p>
+  <input id="inv-contact" placeholder="Email or phone" data-en="Email or phone" data-tl="Email o phone" autocomplete="off" aria-label="Email or phone">
+  <div class="row"><button type="button" class="b" id="inv-check" data-en="Check" data-tl="Tingnan">Check</button><button type="button" class="b b2" id="inv-back" data-en="Back" data-tl="Bumalik">Back</button></div>
+ </div>
+ <div id="inv-peoplebox" hidden>
+  <div id="inv-peoplelist"></div>
+  <div class="row"><button type="button" class="b b2" id="inv-peopleback" data-en="Back" data-tl="Bumalik">Back</button></div>
+ </div>
+ <div id="inv-result" hidden></div>
+ <div id="inv-err"></div>
+</div></div>
 <div id="xircle" style="display:none"><div class="card">
- <h3 style="margin-top:0">Join xircle</h3>
- <p style="margin:0 0 8px">Optional. xLooper keeps working either way.</p>
- <input id="xi-name" placeholder="Name" autocomplete="name">
- <input id="xi-email" type="email" placeholder="Email" autocomplete="email" style="margin-top:8px">
- <input id="xi-phone" type="tel" placeholder="Phone (optional)" autocomplete="tel" style="margin-top:8px">
- <input id="xi-zip" placeholder="ZIP (optional)" autocomplete="postal-code" style="margin-top:8px">
- <input id="xi-home" placeholder="Home course (optional)" style="margin-top:8px">
- <label style="margin-top:12px"><input type="checkbox" id="xi-ok"> <span>Yes, xircle (Global Service Systems Corporation) may contact me about xLooper and other xircle apps.</span></label>
+ <h3 style="margin-top:0" data-en="Join xircle" data-tl="Sumali sa xircle">Join xircle</h3>
+ <p style="margin:0 0 8px" data-en="Optional. xLooper keeps working either way." data-tl="Opsyonal. Gagana pa rin ang xLooper kahit hindi.">Optional. xLooper keeps working either way.</p>
+ <p id="xi-invited" hidden style="margin:0 0 8px"></p>
+ <input id="xi-name" placeholder="Name" data-en="Name" data-tl="Pangalan" autocomplete="name">
+ <input id="xi-email" type="email" placeholder="Email" data-en="Email" data-tl="Email" autocomplete="email" style="margin-top:8px">
+ <input id="xi-phone" type="tel" placeholder="Phone (optional)" data-en="Phone (optional)" data-tl="Phone (optional)" autocomplete="tel" style="margin-top:8px">
+ <input id="xi-zip" placeholder="ZIP (optional)" data-en="ZIP (optional)" data-tl="ZIP (optional)" autocomplete="postal-code" style="margin-top:8px">
+ <input id="xi-home" placeholder="Home course (optional)" data-en="Home course (optional)" data-tl="Home course (optional)" style="margin-top:8px">
+ <p class="legal" data-en="What is stored in the shared xircle directory: your name, a one-way SHA-256 code of your email, and a one-way SHA-256 code of your phone if you add one. The email and phone themselves are not stored. The directory also stores that you joined the xLooper xircle, and who invited you, so the community tree stays intact. ZIP and home course stay on this phone. Why: xircle.us uses the directory to see who is already in the community and to hand an invite to them inside the app. xLooper never sends email or text on its own. You tap send in your own mail or text app. Withdraw any time: Clubs, then Withdraw. That marks you withdrawn, removes the codes used to find you, and stops new in-app invites. Who invited you can stay, so the tree is not broken." data-tl="Ano ang naka-save sa shared xircle directory: pangalan mo, one-way SHA-256 code ng email, at one-way SHA-256 code ng phone kung may ilalagay ka. Hindi sine-save ang email at phone mismo. Naka-save din na sumali ka sa xLooper xircle, at kung sino ang nag-invite, para buo ang community tree. Ang ZIP at home course, sa phone lang. Bakit: ginagamit ito ng xircle.us para makita kung sino na ang nasa community at para maihatid ang invite sa loob ng app. Hindi nagse-send ng email o text ang xLooper. Ikaw ang magta-tap ng send sa sarili mong mail o text app. Umalis kahit kailan: Clubs, tapos Withdraw. Mamamarkahang withdrawn ka, matatanggal ang codes na ginagamit para hanapin ka, at titigil ang bagong in-app invites. Pwedeng manatili kung sino ang nag-invite, para hindi masira ang tree.">What is stored in the shared xircle directory: your name, a one-way SHA-256 code of your email, and a one-way SHA-256 code of your phone if you add one. The email and phone themselves are not stored. The directory also stores that you joined the xLooper xircle, and who invited you, so the community tree stays intact. ZIP and home course stay on this phone. Why: xircle.us uses the directory to see who is already in the community and to hand an invite to them inside the app. xLooper never sends email or text on its own. You tap send in your own mail or text app. Withdraw any time: Clubs, then Withdraw. That marks you withdrawn, removes the codes used to find you, and stops new in-app invites. Who invited you can stay, so the tree is not broken.</p>
  <p style="margin:8px 0"><a href="https://xircle.us/privacy" target="_blank" rel="noopener noreferrer">Privacy policy</a></p>
+ <label style="margin-top:12px"><input type="checkbox" id="xi-ok"> <span data-en="Yes, I choose to join the xLooper xircle. xircle (Global Service Systems Corporation) may contact me about xLooper and other xircle apps." data-tl="Oo, pipili akong sumali sa xLooper xircle. Pwedeng kontakin ako ng xircle (Global Service Systems Corporation) tungkol sa xLooper at iba pang xircle apps.">Yes, I choose to join the xLooper xircle. xircle (Global Service Systems Corporation) may contact me about xLooper and other xircle apps.</span></label>
  <div id="xi-err"></div>
- <div class="row"><button class="b" id="xi-join" style="font-size:18px">Join xircle</button><button class="b b2" id="xi-later" style="font-size:18px">Not now</button></div>
+ <div class="row"><button class="b" id="xi-join" style="font-size:18px" data-en="Join xircle" data-tl="Sumali sa xircle">Join xircle</button><button class="b b2" id="xi-later" style="font-size:18px" data-en="Not now" data-tl="Huwag muna">Not now</button></div>
 </div></div>
 <script src="games.js"></script>
 <script src="config.js"></script>
+<script src="xircle-db.js"></script>
 <script src="course-osm.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="chat.js"></script>

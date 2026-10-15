@@ -1,0 +1,79 @@
+rules_version = '2';
+// Paste into Firebase console → Firestore → Rules → Publish.
+// xLooper only sends SHA-256 contact hashes. These rules reject raw email and phone fields.
+// Reads of people, contacts, and membership are public so a static page can look someone up.
+// Writes require Anonymous Authentication (Firebase console → Authentication → Anonymous → Enable).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function hashOk(v) {
+      return v is string && v.matches('^[a-f0-9]{64}$');
+    }
+    function noRaw(data) {
+      return !data.keys().hasAny(['email', 'phone', 'tel', 'e164']);
+    }
+
+    match /xirclePeople/{id} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && noRaw(request.resource.data)
+        && request.resource.data.keys().hasOnly(['name', 'chatId', 'emailHash', 'phoneHash', 'consentAt', 'withdrawn'])
+        && hashOk(request.resource.data.emailHash)
+        && (request.resource.data.phoneHash == '' || hashOk(request.resource.data.phoneHash))
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.chatId is string
+        && request.resource.data.chatId.size() > 0
+        && request.resource.data.chatId.size() <= 40
+        && request.resource.data.withdrawn is bool
+        && request.resource.data.consentAt is int;
+      allow delete: if false;
+    }
+
+    match /xircleContacts/{hash} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && hash.matches('^[a-f0-9]{64}$')
+        && noRaw(request.resource.data)
+        && request.resource.data.keys().hasOnly(['kind', 'memberId', 'withdrawn'])
+        && request.resource.data.kind in ['email', 'phone']
+        && request.resource.data.memberId is string
+        && request.resource.data.withdrawn is bool;
+      allow delete: if signedIn();
+    }
+
+    match /xircleMembers/{id} {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && noRaw(request.resource.data)
+        && request.resource.data.keys().hasOnly(['xircle', 'memberId', 'parentId', 'name', 'chatId', 'joinedAt', 'withdrawn'])
+        && request.resource.data.xircle == 'xlooper'
+        && request.resource.data.memberId is string
+        && request.resource.data.parentId is string
+        && request.resource.data.name is string
+        && request.resource.data.chatId is string
+        && request.resource.data.withdrawn is bool
+        && request.resource.data.joinedAt is int;
+      allow delete: if false;
+    }
+
+    match /xircleInvites/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && noRaw(request.resource.data)
+        && request.resource.data.keys().hasOnly(['id', 'xircle', 'toMemberId', 'toChatId', 'fromMemberId', 'fromName', 'groupId', 'groupName', 'room', 'status', 'ts'])
+        && request.resource.data.xircle == 'xlooper'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.toChatId is string
+        && request.resource.data.groupId is string
+        && request.resource.data.ts is int;
+      allow update: if signedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['pending', 'accepted', 'dismissed'];
+      allow delete: if false;
+    }
+  }
+}

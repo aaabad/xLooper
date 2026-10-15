@@ -1,4 +1,4 @@
-// xLooper v0.17 – voice golf caddy PWA
+// xLooper v0.18 – voice golf caddy PWA
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const LL=window.L; // Leaflet. Local L below is the storage helper and would shadow it.
 const L=(k,d)=>{try{return JSON.parse(localStorage['xl.'+k])??d}catch{return d}},P=(k,v)=>localStorage['xl.'+k]=JSON.stringify(v);
@@ -416,7 +416,7 @@ document.addEventListener('click',e=>{
  const n=e.target.closest&&e.target.closest('[data-gcount] [data-n]');
  if(n){if(settingsLocked())return;group.count=+n.dataset.n;save();render();if(flight&&iAmCaptain())publishFlightInfo();return}
  const sp=e.target.closest&&e.target.closest('#autoSpeed [data-spd]');if(sp){auto.speed=sp.dataset.spd;paintAuto()}});
-document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.closest('#cresults')||b.closest('#xircle')||b.id==='upd')return;const label=(b.textContent||'').replace(/\s+/g,' ').trim();if(label)flashTap(label)},true);
+document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(!b||b.closest('#cresults')||b.closest('#xircle')||b.closest('#invite')||b.id==='upd')return;const label=(b.textContent||'').replace(/\s+/g,' ').trim();if(label)flashTap(label)},true);
 document.addEventListener('input',onGroupEdit);document.addEventListener('change',onGroupEdit);
 function onGroupEdit(e){const t=e.target;if(!t||!t.dataset)return;
  if(t.dataset.gs){if(e.type!=='change')return;if(flight&&!flight.started)return;const s=+t.value,h=+t.dataset.gh,pid=t.dataset.gs;const prevSc=group.scores[pid]&&group.scores[pid][h];const me=mePlayer();const mine=!!(me&&pid===me.id);
@@ -1206,51 +1206,77 @@ if(qg){const code=String(qg).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);
 if(qparams.get('v')==='1'){const box=$('#tvirtual');if(box)box.checked=true;const vb=$('#tvirtualbox');if(vb)vb.style.display='block';if($('#tstart')&&!$('#tstart').value)$('#tstart').value=todayKey();if($('#tend')&&!$('#tend').value)$('#tend').value=addDaysKey(6)}
 if(qt){$('#tcode').value=qt;if(!tour||tour.code!==qt.toUpperCase()){$$('nav button')[3].click();$('#tname').focus()}}
 const qc=qparams.get('chat');if(qc){const inp=$('#chatJoinCode');if(inp)inp.value=String(qc).trim();setTimeout(()=>joinChatCode(qc,true),600)}
+const qxi=qparams.get('xi');if(qxi&&/^[A-Za-z0-9_-]{1,40}$/.test(qxi)){xstate.pendingParent=qxi;const xin=qparams.get('xin');if(xin)xstate.pendingParentName=String(xin).replace(/[<>]/g,'').slice(0,24);P('xircle',xstate)}
 const qCourse=new URLSearchParams(location.search).get('course');if(qCourse)previewCourse(location.search+location.hash);
 $('#tname').value=tour?.name||L('pname','');$('#tname').onchange=e=>P('pname',e.target.value);
 // ---------- xircle signup ----------
 // Auto prompt: after the first saved round or the 3rd open. One dismiss, then at most one more ask after 2 further saved rounds.
-function xircleEndpoint(){const t=window.XLOOPER_CONFIG&&window.XLOOPER_CONFIG.signupTopic;if(!t||typeof t!=='string')return '';return /^https?:\/\//i.test(t)?t:'https://ntfy.sh/'+t.replace(/^\/+/,'')}
+// The shared directory is public/xircle-db.js (Firestore, or this phone + ntfy).
+let xdir=null;
+function directory(){if(!window.XLXircle)return null;if(!xdir)xdir=XLXircle.createDirectory({config:window.XLOOPER_CONFIG,chatId:()=>myId,memberId:()=>(xstate.signup&&xstate.signup.memberId)||''});return xdir}
 function xircleDue(){if(xstate.signup||xstate.withdrawn)return false;const asks=xstate.asks|0;if(asks>=2)return false;if(asks===0)return hist.length>=1||(xstate.opens|0)>=3;return hist.length>=(xstate.at|0)+2}
 let xircleManual=false;
-function openXircle(manual){xircleManual=!!manual;$('#xi-ok').checked=false;$('#xi-err').textContent='';if(!$('#xi-name').value.trim())$('#xi-name').value=L('pname','')||'';$('#xircle').style.display='block'}
-function dismissXircle(){$('#xircle').style.display='none';if(!xircleManual){xstate.asks=(xstate.asks|0)+1;xstate.at=hist.length;P('xircle',xstate)}xircleManual=false}
+function setLabeled(el,en,tl){if(!el)return;el.setAttribute('data-en',en);el.setAttribute('data-tl',tl);el.textContent=tr(en,tl)}
+function inviteErr(code){
+ if(code==='need-contact')return tr('Enter an email or phone number.','Maglagay ng email o phone.');
+ if(code==='bad-email')return tr('Enter a real email address.','Maglagay ng totoong email.');
+ if(code==='bad-phone')return tr('Enter a phone with country code, like +14155552671. A 10-digit number is treated as US, and 09… as a Philippine mobile.','Maglagay ng phone na may country code, gaya ng +639171234567. Ang 10 digits ay US, at ang 09… ay Philippine mobile.');
+ if(code==='need-consent')return tr('Check the box to join. You can also choose Not now.','I-check ang box para sumali. Puwede ring Huwag muna.');
+ if(code==='need-name')return tr('Enter your name.','Ilagay ang pangalan mo.');
+ return String(code||'')}
+function openXircle(manual){xircleManual=!!manual;const ok=$('#xi-ok');if(ok)ok.checked=false;const err=$('#xi-err');if(err)err.textContent='';if($('#xi-name')&&!$('#xi-name').value.trim())$('#xi-name').value=L('pname','')||'';
+ const note=$('#xi-invited');if(note){if(xstate.pendingParent&&!xstate.signup){const who=xstate.pendingParentName||tr('someone in xLooper','isang tao sa xLooper');note.hidden=false;note.textContent=tr(who+' invited you. Joining is still your choice. If you join, the tree records them as the person who invited you.','Inimbitahan ka ni '+who+'. Ikaw ang pipili kung sasali. Kung sasali ka, sila ang naka-record na nag-invite.')}else note.hidden=true}
+ const sheet=$('#xircle');if(sheet)sheet.style.display='block'}
+function dismissXircle(){const sheet=$('#xircle');if(sheet)sheet.style.display='none';if(!xircleManual){xstate.asks=(xstate.asks|0)+1;xstate.at=hist.length;P('xircle',xstate)}xircleManual=false}
 function maybeXircle(){const el=$('#xircle');if(!el||el.style.display==='block')return;if(xircleDue())openXircle(false)}
 function xircleStatus(){const s=$('#xi-status'),b=$('#xi-set');if(!s||!b)return;
- if(xstate.signup){s.textContent=xstate.signup.sent?`Joined as ${xstate.signup.name}.`:`Saved on this device as ${xstate.signup.name}. The signup notice has not been sent yet.`;b.textContent=xstate.signup.sent?'Withdraw':'Retry signup';b.classList.toggle('red',!!xstate.signup.sent)}
- else{s.textContent=xstate.withdrawn?'You withdrew. You can join again any time.':'Not joined.';b.textContent='Join xircle';b.classList.remove('red')}}
+ if(xstate.signup){s.textContent=xstate.signup.sent?tr('Joined as '+xstate.signup.name+'.','Sumali ka bilang '+xstate.signup.name+'.'):tr('Saved on this device as '+xstate.signup.name+'. The directory notice has not been sent yet.','Naka-save sa phone bilang '+xstate.signup.name+'. Hindi pa naipadala ang directory.');setLabeled(b,xstate.signup.sent?'Withdraw':'Retry signup',xstate.signup.sent?'Umalis':'Ulitin ang signup');b.classList.toggle('red',!!xstate.signup.sent)}
+ else{s.textContent=xstate.withdrawn?tr('You withdrew. You can join again any time.','Umalis ka na. Pwedeng sumali ulit.'):tr('Not joined.','Hindi pa sumasali.');setLabeled(b,'Join xircle','Sumali sa xircle');b.classList.remove('red')}
+ const dirEl=$('#xi-dir'),dir=directory();if(dirEl&&dir){const st=dir.status();dirEl.textContent=tr(st.detail,st.mode==='firestore'?'Directory: Firebase Firestore para sa xircle.us.':(st.error?'Directory: phone at ntfy (mga 12 oras). Hindi pa handa ang Firebase: '+st.error:'Directory: phone at ntfy (mga 12 oras). Ilagay ang firebase.apiKey at firebase.projectId sa config.js, i-enable ang Anonymous sign-in, at i-publish ang firestore.rules.'))}}
+async function refreshTree(){const box=$('#xi-tree');if(!box||!window.XLXircle)return;const id=xstate.signup&&xstate.signup.memberId;if(!id){box.textContent='';return}
+ const dir=directory();try{await dir.sync(false)}catch(e){}
+ const me=dir.person(id),kids=dir.children(id),parent=me&&me.parentId?dir.person(me.parentId):null,bits=[];
+ if(parent&&parent.name)bits.push(tr('Invited by '+parent.name+'.','Inimbitahan ni '+parent.name+'.'));
+ else if(me&&me.parentId)bits.push(tr('Invited by someone in xLooper.','May nag-invite mula sa xLooper.'));
+ if(kids.length)bits.push(tr('You invited: '+kids.map(k=>k.name+(k.inXlooper?'':' (withdrew)')).join(', ')+'.','Inimbitahan mo: '+kids.map(k=>k.name+(k.inXlooper?'':' (umalis)')).join(', ')+'.'));
+ box.innerHTML=bits.length?'<small>'+bits.map(hx).join('<br>')+'</small>':''}
 function xirclePayload(){
  const name=$('#xi-name').value.trim().slice(0,80),email=$('#xi-email').value.trim().slice(0,120),phone=$('#xi-phone').value.trim().slice(0,24),zip=$('#xi-zip').value.trim().slice(0,12),home=$('#xi-home').value.trim().slice(0,80);
- if(name.length<1)return {error:'Enter your name.'};
- if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return {error:'Enter a real email address.'};
- if(phone&&(phone.replace(/\D/g,'').length<7||!/^[0-9+().\-\s]+$/.test(phone)))return {error:'Check the phone number, or leave it blank.'};
- if(zip&&!/^[A-Za-z0-9 \-]{3,12}$/.test(zip))return {error:'Check the ZIP, or leave it blank.'};
- if(!$('#xi-ok').checked)return {error:'Check the box to join. You can also choose Not now.'};
- const body={t:'signup',name,email,consent:true,ts:Date.now()};
- if(phone)body.phone=phone;if(zip)body.zip=zip;if(home)body.home=home;
- return {body};
+ if(name.length<1)return {error:inviteErr('need-name')};
+ if(!window.XLXircle||!XLXircle.normalizeEmail(email))return {error:inviteErr('bad-email')};
+ if(phone&&!XLXircle.normalizePhone(phone))return {error:inviteErr('bad-phone')};
+ if(zip&&!/^[A-Za-z0-9 \-]{3,12}$/.test(zip))return {error:tr('Check the ZIP, or leave it blank.','Tingnan ang ZIP, o iwanang blangko.')};
+ if(!$('#xi-ok').checked)return {error:inviteErr('need-consent')};
+ return {body:{name,email,phone,zip,home,consent:true}};
 }
-async function sendXircle(body){const url=xircleEndpoint();if(!url)throw new Error('Signup is not configured');const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body),signal:AbortSignal.timeout(8000)});if(!r.ok)throw new Error('HTTP '+r.status)}
+function applyJoinResult(body,res){xstate.signup={name:body.name,email:body.email,phone:body.phone||'',zip:body.zip||'',home:body.home||'',ts:Date.now(),sent:!!(res&&res.remote),memberId:res&&res.member?res.member.memberId:'',emailHash:res&&res.emailHash||'',phoneHash:res&&res.phoneHash||''};xstate.withdrawn=false;if(res&&res.member)xstate.pendingParent='';P('xircle',xstate)}
 async function submitXircle(){
- const got=xirclePayload();$('#xi-err').textContent=got.error||'';if(got.error)return;
- xstate.signup={name:got.body.name,email:got.body.email,phone:got.body.phone||'',zip:got.body.zip||'',home:got.body.home||'',ts:got.body.ts,sent:false};xstate.withdrawn=false;P('xircle',xstate);
- try{await sendXircle(got.body);xstate.signup.sent=true;P('xircle',xstate);$('#xircle').style.display='none';say(tr('You are in xircle.','Nasa xircle ka na.'))}
- catch(e){$('#xi-err').textContent='Saved on this device, but the notice did not send ('+(e.message||'offline')+'). You can retry from Clubs.'}
- xircleStatus()}
+ const got=xirclePayload();const err=$('#xi-err');if(err)err.textContent=got.error||'';if(got.error)return;
+ const dir=directory();if(!dir){if(err)err.textContent=tr('Directory did not load.','Hindi na-load ang directory.');return}
+ xstate.signup={name:got.body.name,email:got.body.email,phone:got.body.phone||'',zip:got.body.zip||'',home:got.body.home||'',ts:Date.now(),sent:false,memberId:xstate.signup&&xstate.signup.memberId||''};xstate.withdrawn=false;P('xircle',xstate);
+ try{const res=await dir.join({name:got.body.name,email:got.body.email,phone:got.body.phone||'',chatId:myId,consent:true,parentId:xstate.pendingParent||''});
+  if(res.error&&!res.member){if(err)err.textContent=inviteErr(res.error);xircleStatus();return}
+  applyJoinResult(got.body,res);if(res.remote){$('#xircle').style.display='none';say(tr('You are in xircle.','Nasa xircle ka na.'))}
+  else if(err)err.textContent=tr('Saved on this device, but the directory notice did not send. You can retry from Clubs.','Naka-save sa phone, pero hindi naipadala ang directory. Pwedeng ulitin sa Clubs.')}
+ catch(e){if(err)err.textContent=tr('Saved on this device, but the directory notice did not send ('+(e.message||'offline')+'). You can retry from Clubs.','Naka-save sa phone, pero hindi naipadala ang directory ('+(e.message||'offline')+'). Pwedeng ulitin sa Clubs.')}
+ xircleStatus();void refreshTree()}
 async function withdrawXircle(){
  if(!xstate.signup)return;
- if(!confirm('Withdraw from xircle? This removes your signup from this device.'))return;
- const email=xstate.signup.email,name=xstate.signup.name;
- xstate.signup=null;xstate.withdrawn=true;xstate.asks=2;P('xircle',xstate);xircleStatus();
- try{await sendXircle({t:'withdraw',email,name,ts:Date.now()});say(tr('Withdrawn from xircle.','Umalis ka na sa xircle.'))}
- catch{say(tr('Removed on this device. The withdrawal notice did not send.','Tinanggal sa phone na ito. Hindi na-send ang withdrawal.'))}}
+ if(!confirm(tr('Withdraw from xircle? This phone will forget the signup. The shared directory will stop matching your email and phone. Who invited you can stay in the tree.','Umalis sa xircle? Makakalimutan ng phone ang signup. Hindi na imi-match ng directory ang email at phone. Pwedeng manatili sa tree kung sino ang nag-invite.')))return;
+ const id=xstate.signup.memberId;xstate.signup=null;xstate.withdrawn=true;xstate.asks=2;P('xircle',xstate);xircleStatus();const tree=$('#xi-tree');if(tree)tree.textContent='';
+ const dir=directory();if(!dir||!id){say(tr('Withdrawn from xircle.','Umalis ka na sa xircle.'));return}
+ try{const res=await dir.withdraw(id);say(res&&res.remote?tr('Withdrawn from xircle.','Umalis ka na sa xircle.'):tr('Removed on this device. The withdrawal notice did not send.','Tinanggal sa phone na ito. Hindi na-send ang withdrawal.'))}
+ catch(e){say(tr('Removed on this device. The withdrawal notice did not send.','Tinanggal sa phone na ito. Hindi na-send ang withdrawal.'))}}
 async function retryXircle(){
- const s=xstate.signup;if(!s)return;
- const body={t:'signup',name:s.name,email:s.email,consent:true,ts:s.ts||Date.now()};
- if(s.phone)body.phone=s.phone;if(s.zip)body.zip=s.zip;if(s.home)body.home=s.home;
- try{await sendXircle(body);s.sent=true;P('xircle',xstate);say(tr('Signup sent.','Na-send na ang signup.'))}
- catch{say(tr('Still could not send the signup.','Hindi pa rin ma-send ang signup.'))}
- xircleStatus()}
+ const s=xstate.signup;if(!s)return;const dir=directory();if(!dir)return say(tr('Directory did not load.','Hindi na-load ang directory.'));
+ try{const res=await dir.join({name:s.name,email:s.email,phone:s.phone||'',chatId:myId,consent:true,parentId:''});
+  if(res&&res.member){s.memberId=res.member.memberId;s.emailHash=res.emailHash||'';s.phoneHash=res.phoneHash||'';s.sent=!!res.remote;P('xircle',xstate)}
+  say(res&&res.remote?tr('Signup sent.','Na-send na ang signup.'):tr('Still could not send the signup.','Hindi pa rin ma-send ang signup.'))}
+ catch(e){say(tr('Still could not send the signup.','Hindi pa rin ma-send ang signup.'))}
+ xircleStatus();void refreshTree()}
+async function bootXircle(){const dir=directory();if(!dir)return;try{await dir.sync(true)}catch(e){}
+ if(xstate.signup&&xstate.signup.email&&!xstate.signup.memberId){const email=xstate.signup.email;try{const res=await dir.join({name:xstate.signup.name,email,phone:xstate.signup.phone||'',chatId:myId,consent:true,parentId:xstate.pendingParent||''});if(res&&res.member&&xstate.signup&&xstate.signup.email===email){xstate.signup.memberId=res.member.memberId;xstate.signup.emailHash=res.emailHash||'';xstate.signup.phoneHash=res.phoneHash||'';xstate.signup.sent=!!res.remote;if(res.remote)xstate.pendingParent='';P('xircle',xstate)}}catch(e){}}
+ xircleStatus();void refreshTree();void refreshInviteInbox()}
 $('#xi-set').onclick=()=>{if(xstate.signup&&!xstate.signup.sent)return retryXircle();if(xstate.signup)return withdrawXircle();openXircle(true)};
 $('#xi-join').onclick=()=>submitXircle();
 $('#xi-later').onclick=()=>dismissXircle();
@@ -1380,7 +1406,7 @@ function chatTick(){if(!window.XLChat)return;try{const db=syncShells();paintChat
 function paintChats(db){if(!window.XLChat||!$('#chatList'))return;db=db||syncShells();const g=db.open&&db.groups[db.open];const open=g&&!g.left?db.open:'';
  if(db.open&&!open){db.open='';XLChat.save(db)}
  $('#chatList').hidden=!!open;$('#chatRoom').hidden=!open;
- if(!open)paintChatList(db);else paintChatRoom(db,db.groups[open]);paintChatBadge(db)}
+ if(!open){paintChatList(db);void refreshInviteInbox()}else paintChatRoom(db,db.groups[open]);paintChatBadge(db)}
 function paintChatList(db){const rows=XLChat.list(db,chatCtx());const sig=rows.map(g=>g.id+':'+(g.msgs&&g.msgs.length?g.msgs[g.msgs.length-1].mid:'')+':'+XLChat.unreadFor(g,myId)+':'+XLChat.displayName(g,myId)).join('|')+(taglish()?'1':'0');
  if(sig===chatSig)return;chatSig=sig;const box=$('#chatRooms');if(!box)return;
  if(!rows.length){box.innerHTML='<small>'+hx(tr('No chats yet. Tap a player\'s name, or start a group.','Wala pang chat. I-tap ang pangalan, o gumawa ng group.'))+'</small>';return}
@@ -1439,9 +1465,71 @@ async function modChat(kind,targetId){const db=XLChat.load();const g=db.groups[d
  if(!ev)return say(tr('Only the admin can do that.','Admin lang ang pwedeng gumawa niyan.'));XLChat.save(db);roomLogSig='';roomMemSig='';paintChats();await publishChat(g,ev)}
 async function leaveOpenChat(){const db=XLChat.load();const id=db.open,g=db.groups[id];if(!g)return;if(g.kind==='flight'||g.kind==='tour'){db.open='';XLChat.save(db);chatSig='';paintChats();return}
  const ev=XLChat.leave(db,id,myId);XLChat.save(db);chatSig='';paintChats();if(ev)await publishChat(g,ev)}
-function shareOpenChat(){const db=XLChat.load();const g=db.groups[db.open];if(!g)return;const u=location.origin+location.pathname+'?chat='+encodeURIComponent(g.id);const title='Join my xLooper chat';
- if(navigator.share)navigator.share({title,text:(g.name||'Chat')+' '+g.id,url:u}).catch(()=>{});
- else if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(()=>say(tr('Link copied.','Na-copy ang link.'))).catch(()=>say(u));else say(u)}
+function shareOpenChat(){openInvite()}
+function openGroupName(){const db=XLChat.load();const g=db.groups[db.open];return (g&&g.name)||'Chat'}
+function currentJoinLink(){const db=XLChat.load();const g=db.groups[db.open];if(!g||!window.XLXircle)return '';
+ const parent=xstate.signup&&xstate.signup.memberId?{id:xstate.signup.memberId,name:xstate.signup.name||myChatName()}:null;return XLXircle.chatJoinUrl(location.origin+location.pathname,g.id,parent)}
+function showInv(step){const ask=$('#inv-ask'),form=$('#inv-form'),people=$('#inv-peoplebox'),result=$('#inv-result');
+ if(ask)ask.hidden=step!=='ask';if(form)form.hidden=step!=='form';if(people)people.hidden=step!=='people';if(result){result.hidden=step!=='result';if(step!=='result')result.innerHTML=''}}
+function openInvite(){const db=XLChat.load();if(!db.groups[db.open])return;const sheet=$('#invite');if(!sheet)return;const err=$('#inv-err');if(err)err.textContent='';
+ const unsup=$('#inv-unsupported');if(unsup)unsup.hidden=!!(window.XLXircle&&XLXircle.contactsAvailable());showInv('ask');sheet.style.display='block'}
+function closeInvite(){const sheet=$('#invite');if(sheet)sheet.style.display='none'}
+async function shareDraft(draft){if(!draft||!draft.share)return;if(navigator.share){try{await navigator.share({title:draft.share.title,text:draft.share.text,url:draft.share.url});return}catch(e){if(e&&e.name==='AbortError')return}}
+ try{if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(draft.share.url);say(tr('Link copied. You send it.','Na-copy ang link. Ikaw ang magse-send.'));return}}catch(e){}
+ say(draft.share.url)}
+function shareJoinLink(){const link=currentJoinLink();if(!link)return;return shareDraft({share:{title:'Join my xLooper chat',text:tr('Join my xLooper chat. You send this.','Sumali sa xLooper chat ko. Ikaw ang magse-send.')+'\n\n'+link,url:link}})}
+async function checkInviteTarget(raw,name){const dir=directory();if(!dir)return{error:tr('Directory did not load.','Hindi na-load ang directory.')};const looked=await dir.lookup(raw);if(looked.error)return{error:inviteErr(looked.error)};
+ const person=looked.person;if(person&&(person.chatId===myId||(xstate.signup&&person.memberId===xstate.signup.memberId)))return{self:true,name:name||person.name};
+ if(person)return{person,name:name||person.name};if(looked.contact)return{missing:true,kind:looked.contact.kind,address:looked.contact.norm,name:name||''};return{error:inviteErr('need-contact')}}
+async function invitePerson(person){if(!person||!person.chatId)return;const db=XLChat.load();const g=db.groups[db.open];if(!g)return;
+ if((g.members||[]).some(m=>m.id===person.chatId))return say(tr((person.name||'They')+' are already in this chat.',(person.name||'Nasa chat na sila')+' ay nasa chat na.'));
+ const res=XLChat.addPeople(db,g.id,[{id:person.chatId,name:person.name||'Player'}],{id:myId,name:myChatName()});XLChat.save(db);peopleSig='';roomLogSig='';roomMemSig='';chatSig='';paintChats();
+ if(res&&res.ev)await publishChat(res.group,res.ev);const dir=directory();if(dir){try{await dir.recordInvite({toMemberId:person.memberId,toChatId:person.chatId,fromMemberId:(xstate.signup&&xstate.signup.memberId)||myId,fromName:myChatName(),groupId:g.id,groupName:g.name,room:g.room})}catch(e){}}
+ say(tr('Invited '+(person.name||'them')+' in the app.','Inimbitahan si '+(person.name||'sila')+' sa app.'))}
+function handoffAnchor(draft,label){const a=document.createElement('a');a.className='b';a.href=draft.href;a.textContent=label;return a}
+async function renderOutcomes(items){const box=$('#inv-result');if(!box)return;showInv('result');box.innerHTML='';const link=currentJoinLink();
+ for(const item of items){const raws=(item.raws||[]).map(s=>String(s||'').trim()).filter(Boolean);let person=null,self=false;const missing=[];
+  for(const raw of raws){const hit=await checkInviteTarget(raw,item.name);if(hit.error){const p=document.createElement('p');p.className='legal';p.textContent=hit.error;box.appendChild(p);continue}if(hit.self)self=true;else if(hit.person)person=hit.person;else if(hit.missing)missing.push(hit)}
+  const card=document.createElement('div');card.className='card';card.style.marginTop='0';
+  if(person){const who=person.name||item.name||tr('They','Sila');const p=document.createElement('p');p.textContent=tr(who+' is already in the xLooper xircle. Invite them in the app. xLooper will not open email or text.','Nasa xLooper xircle na si '+who+'. Imbitahan sa app. Hindi bubuksan ang email o text.');card.appendChild(p);
+   const b=document.createElement('button');b.type='button';b.className='b';b.textContent=tr('Invite in the app','Imbitahan sa app');b.onclick=()=>invitePerson(person);card.appendChild(b)}
+  else if(missing.length){const p=document.createElement('p');p.textContent=tr('Not in the xLooper xircle yet. Open a message and tap send yourself. xLooper does not send it.','Wala pa sa xLooper xircle. Buksan ang message at ikaw ang magta-tap ng send. Hindi nagse-send ang xLooper.');card.appendChild(p);
+   if(!(xstate.signup&&xstate.signup.memberId)){const tip=document.createElement('p');tip.className='legal';tip.textContent=tr('Join xircle if you want the tree to show that you invited them. The chat link still works either way.','Sumali sa xircle kung gusto mong makita sa tree na ikaw ang nag-invite. Gagana pa rin ang chat link.');card.appendChild(tip)}
+   missing.forEach(hit=>{const draft=XLXircle.handoff({kind:hit.kind,address:hit.address,link,groupName:openGroupName(),fromName:myChatName()});card.appendChild(handoffAnchor(draft,hit.kind==='email'?tr('Open email','Buksan ang email'):tr('Open text','Buksan ang text')));
+    const share=document.createElement('button');share.type='button';share.className='b b2';share.style.marginTop='8px';share.textContent=tr('Share','I-share');share.onclick=()=>shareDraft(draft);card.appendChild(share)});
+   const field=document.createElement('input');field.readOnly=true;field.value=link;field.setAttribute('aria-label','Join link');card.appendChild(field)}
+  else if(self){const p=document.createElement('p');p.textContent=tr('That contact is you.','Ikaw ang contact na iyan.');card.appendChild(p)}
+  if(card.childNodes.length)box.appendChild(card)}
+ const back=document.createElement('button');back.type='button';back.className='b b2';back.textContent=tr('Back','Bumalik');back.onclick=()=>showInv('ask');box.appendChild(back)}
+function pickedTargets(rows){const out=[];(rows||[]).forEach(c=>{const name=(c&&c.name&&c.name[0])||'';const emails=Array.isArray(c&&c.email)?c.email:[];const tels=Array.isArray(c&&c.tel)?c.tel:[];const raws=[emails[0],tels[0]].filter(Boolean);if(raws.length)out.push({name,raws})});return out}
+async function showXirclePeople(){showInv('people');const box=$('#inv-peoplelist');if(!box)return;box.innerHTML='<small>'+hx(tr('Checking the xLooper xircle…','Tinitingnan ang xLooper xircle…'))+'</small>';
+ const dir=directory();if(!dir){box.innerHTML='<small>'+hx(tr('Directory did not load.','Hindi na-load ang directory.'))+'</small>';return}
+ try{await dir.sync(true)}catch(e){}
+ const mine=xstate.signup&&xstate.signup.memberId;const people=dir.listMembers().filter(p=>p.memberId!==mine&&p.chatId!==myId);box.innerHTML='';
+ if(!people.length){box.innerHTML='<small>'+hx(tr('No one else is in the xLooper xircle yet.','Wala pang ibang tao sa xLooper xircle.'))+'</small>';return}
+ people.forEach(p=>{const row=document.createElement('div');row.className='row';const b=document.createElement('button');b.type='button';b.className='b b2';b.textContent=tr('Invite '+p.name,'Imbitahan si '+p.name);b.onclick=()=>invitePerson(p);row.appendChild(b);box.appendChild(row)})}
+let invSig='';
+function refreshInviteInbox(){const box=$('#chatInvites');if(!box||!window.XLXircle)return;const dir=directory();if(!dir)return;let rows=[];try{rows=dir.invitesFor(myId,xstate.signup&&xstate.signup.memberId)||[]}catch(e){rows=[]}
+ const db=XLChat.load();rows=rows.filter(inv=>!(db.groups[inv.groupId]&&!db.groups[inv.groupId].left&&(db.groups[inv.groupId].members||[]).some(m=>m.id===myId)));
+ const sig=rows.map(r=>r.id).join('|')+(taglish()?'1':'0');if(sig===invSig)return;invSig=sig;box.innerHTML='';
+ rows.forEach(inv=>{const card=document.createElement('div');card.className='card';const p=document.createElement('div');p.textContent=tr((inv.fromName||'Someone')+' invited you to '+(inv.groupName||'a chat')+'.',(inv.fromName||'May tao')+' ang nag-invite sa iyo sa '+(inv.groupName||'isang chat')+'.');card.appendChild(p);
+  const row=document.createElement('div');row.className='row';const yes=document.createElement('button');yes.type='button';yes.className='b';yes.textContent=tr('Join chat','Sumali sa chat');yes.onclick=async()=>{joinChatCode(inv.groupId,false);try{await dir.setInviteStatus(inv.id,'accepted')}catch(e){}invSig='';refreshInviteInbox()};
+  const no=document.createElement('button');no.type='button';no.className='b b2';no.textContent=tr('Not now','Huwag muna');no.onclick=async()=>{try{await dir.setInviteStatus(inv.id,'dismissed')}catch(e){}invSig='';refreshInviteInbox()};
+  row.appendChild(yes);row.appendChild(no);card.appendChild(row);box.appendChild(card)})}
+function bindInvite(){if(!$('#inv-yes'))return;
+ $('#inv-yes').onclick=()=>{const err=$('#inv-err');if(err)err.textContent='';
+  if(!window.XLXircle||!XLXircle.contactsAvailable()){if(err)err.textContent=tr('This browser cannot open contacts. Type an email or phone instead.','Hindi mabuksan ang contacts sa browser na ito. Mag-type ng email o phone.');showInv('form');return}
+  let pending;try{pending=navigator.contacts.select(['name','email','tel'],{multiple:true})}catch(e){if(err)err.textContent=tr('Contacts were not shared. Type an email or phone instead.','Hindi na-share ang contacts. Mag-type ng email o phone.');showInv('form');return}
+  Promise.resolve(pending).then(rows=>{const items=pickedTargets(rows);if(!items.length){if(err)err.textContent=tr('No contacts picked.','Walang napiling contact.');showInv('form');return}void renderOutcomes(items)}).catch(()=>{if(err)err.textContent=tr('Contacts were not shared. Type an email or phone instead.','Hindi na-share ang contacts. Mag-type ng email o phone.');showInv('form')})};
+ $('#inv-type').onclick=()=>{const err=$('#inv-err');if(err)err.textContent='';showInv('form');const input=$('#inv-contact');if(input)input.focus()};
+ $('#inv-back').onclick=()=>showInv('ask');
+ $('#inv-people').onclick=()=>{const err=$('#inv-err');if(err)err.textContent='';void showXirclePeople()};
+ $('#inv-peopleback').onclick=()=>showInv('ask');
+ $('#inv-share').onclick=()=>shareJoinLink();
+ $('#inv-cancel').onclick=()=>closeInvite();
+ $('#inv-check').onclick=async()=>{const err=$('#inv-err');if(err)err.textContent='';const btn=$('#inv-check');if(btn)btn.disabled=true;try{await renderOutcomes([{name:'',raws:[$('#inv-contact')&&$('#inv-contact').value||'']}])}finally{if(btn)btn.disabled=false}};
+ $('#invite').onclick=e=>{if(e.target.id==='invite')closeInvite()}}
+bindInvite();
 function bindChat(){if(!$('#chatNew'))return;
  $('#chatNew').onclick=()=>{const box=$('#chatNewBox');if(box)box.hidden=!box.hidden};
  $('#chatCreate').onclick=()=>createChatGroup();
@@ -1466,6 +1554,7 @@ bindChat();
 render();connect();if(flight)connectFlight();hydrateCourses();
 flushChat();
 maybeXircle();
+void bootXircle();
 function showUpdate(){const el=$('#upd');if(!el)return;el.hidden=false;el.onclick=()=>location.reload()}
 if('serviceWorker'in navigator){let sawControl=!!navigator.serviceWorker.controller,readyForUpdate=sawControl;
  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!sawControl){sawControl=true;setTimeout(()=>{readyForUpdate=true},1500);return}showUpdate()});
